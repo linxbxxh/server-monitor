@@ -1,0 +1,37 @@
+Warning: Permanently added '[dev-modelarts-cnsouth222.cloudbrain2.pcl.ac.cn]:30535' (RSA) to the list of known hosts.
+/usr/local/sbin/npu-smi
+---INFO---
++------------------------------------------------------------------------------------------------+
+| npu-smi 25.2.1                   Version: 25.2.1                                               |
++---------------------------+---------------+----------------------------------------------------+
+| NPU   Name                | Health        | Power(W)    Temp(C)           Hugepages-Usage(page)|
+| Chip  Phy-ID              | Bus-Id        | AICore(%)   Memory-Usage(MB)  HBM-Usage(MB)        |
++===========================+===============+====================================================+
+| 2     Ascend910           | OK            | 239.2       50                0    / 0             |
+| 0     4                   | 0000:95:00.0  | 40          0    / 0          57310/ 65536         |
++------------------------------------------------------------------------------------------------+
+| 2     Ascend910           | OK            | -           41                0    / 0             |
+| 1     5                   | 0000:97:00.0  | 0           0    / 0          57324/ 65536         |
++===========================+===============+====================================================+
++---------------------------+---------------+----------------------------------------------------+
+| NPU     Chip              | Process id    | Process name             | Process memory(MB)      |
++===========================+===============+====================================================+
+| 2       0                 | 2753878       | VLLMEngineCor            | 54240                   |
+| 2       1                 | 2753879       | VLLMEngineCor            | 54501                   |
++===========================+===============+====================================================+
+---USAGE---
+Invalid card id.
+Error parameter of -i
+Usage: npu-smi info <watch|proc|-h|-m|-l|-t type> [Options...]
+
+Commands:
+       watch          Show all device's status in scrolling format
+       proc           Show device's matrix process status in scrolling format
+       -h, --help     Show this help text and exit
+       -m             Show all device's mapping information
+       -l             Show all device's topology information
+       -t type        Show information for type
+                      type: board, flash, memory, usages, sensors, temp, power, volt, mac-addr,
+                            common, health, product, ecc, ip, sys-time, i2c_check, work-mode,
+                            ecc-enable, p2p-enable, ssh-enable, license, customized-info,
+                            device-share, nve-level, aicpu-config, pcie-err, mcu-monitor,

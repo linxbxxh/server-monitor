@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.spec
+
+# PyInstaller 产物
+build/
+dist/
+*.exe
+
+# 运行/调试产物
+*.log
+exe_debug.log
+exe_import.log
+imptest.log
+qttest.log
+verify_*.png
+live_card.png
+live-*.png
+card-*.png
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/

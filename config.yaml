@@ -1,0 +1,106 @@
+# ============================================================
+# 服务器监控配置
+# 修改后重启程序生效:  python app.py
+# ============================================================
+
+settings:
+  interval_seconds: 15        # 每轮采集间隔(秒)
+  history_points: 180         # 每台服务器保留最近多少个数据点(用于 CPU 趋势线)
+  listen_host: 127.0.0.1      # 面板监听地址(如需局域网其他机器访问, 改成 0.0.0.0)
+  listen_port: 8787           # 面板端口, 浏览器打开 http://127.0.0.1:8787
+  ssh_timeout: 10             # SSH 连接/执行超时(秒)
+
+  thresholds:                 # 告警阈值(%): 超过 warn 记"警告", 超过 crit 记"严重"
+    cpu_warn: 80
+    cpu_crit: 95
+    mem_warn: 85
+    mem_crit: 95
+    disk_warn: 80
+    disk_crit: 90
+
+# ------------------------------------------------------------
+# 要监控的服务器列表
+#   两种写法二选一:
+#     1) ssh_alias: 直接复用 C:/Users/linxb/.ssh/config 里已有的 Host 配置(推荐)
+#     2) 显式填写 host/port/user + key_file 或 password
+#   enabled: false 表示暂不监控
+# ------------------------------------------------------------
+servers:
+  # ---- 本机 (不经过 SSH, 直接读 psutil / nvidia-smi) ----
+  - name: 本机
+    local: true
+    group: 本机
+    enabled: true
+
+  # ---- 云脑 (ModelArts 昇腾 NPU 服务器) ----
+  - name: notebook-9dde
+    ssh_alias: ZCode-notebook-9dde
+    group: 云脑
+    enabled: true
+
+  - name: cloudbrain-2gpu
+    ssh_alias: ZCode-cloudbrain-2gpu
+    group: 云脑
+    enabled: true
+
+  - name: personal-2gpu
+    ssh_alias: ZCode-personal-2gpu
+    group: 云脑
+    enabled: true
+
+  # ---- 云服务器 (普通云主机, 无 GPU) ----
+  # Azure: 注意必须用 IP, 域名 linxb.cn 走 Cloudflare 不转发 SSH
+  - name: azure-lin
+    host: 4.240.101.198
+    port: 22
+    user: azureuser
+    key_file: C:/Users/linxb/.ssh/lin_key.pem
+    group: 云服务器
+    enabled: true
+
+  # 腾讯云 myserver (ubuntu, 密钥登录)
+  - name: myserver
+    host: 43.159.143.82
+    port: 22
+    user: ubuntu
+    key_file: C:/Users/linxb/.ssh/tx_lin.pem
+    group: 云服务器
+    enabled: true
+
+  # ---- 内网服务器(已在 ~/.ssh/config 中配置, 需要时把 enabled 改成 true) ----
+  - name: gpu-server-85
+    ssh_alias: 192.168.62.85
+    group: 内网
+    enabled: false
+
+  - name: gpu-server-86
+    ssh_alias: 192.168.62.86
+    group: 内网
+    enabled: false
+
+  - name: intranet-172
+    ssh_alias: 172.22.11.55
+    group: 内网
+    enabled: false
+
+  # ---- 演示模式(不连真实服务器, 用模拟数据预览面板效果) ----
+  - name: demo-web
+    demo: true
+    group: 演示
+    enabled: false
+
+  - name: demo-db
+    demo: true
+    group: 演示
+    enabled: false
+
+  # ---- 显式写法示例 ----
+  # - name: my-server
+  #   host: 1.2.3.4
+  #   port: 22
+  #   user: root
+  #   key_file: C:/Users/linxb/.ssh/id_rsa
+  # - name: my-server2
+  #   host: 1.2.3.5
+  #   user: root
+  #   password: "你的密码"

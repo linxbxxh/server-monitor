@@ -1,0 +1,5 @@
+flask>=3.0
+paramiko>=3.4
+PyYAML>=6.0
+PyQt5>=5.15
+psutil>=5.9
