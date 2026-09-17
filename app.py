@@ -35,7 +35,7 @@ def main():
         log.warning("config.yaml 中没有 enabled: true 的服务器")
 
     state = MonitorState(settings["history_points"], settings["thresholds"])
-    collectors = build_collectors(servers, settings["ssh_timeout"])
+    collectors = build_collectors(servers, settings["ssh_timeout"], settings.get("process_detail", False))
 
     stop_event = threading.Event()
     threading.Thread(target=poll_loop, args=(settings, collectors, state, stop_event),

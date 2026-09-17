@@ -9,6 +9,12 @@ settings:
   listen_host: 127.0.0.1      # 面板监听地址(如需局域网其他机器访问, 改成 0.0.0.0)
   listen_port: 8787           # 面板端口, 浏览器打开 http://127.0.0.1:8787
   ssh_timeout: 10             # SSH 连接/执行超时(秒)
+  process_detail: true        # 采集主要运行程序和活跃用户(增加少量 SSH 开销)
+  # 手机 App / 移动端访问令牌: 设置后 /api/* 需要 Authorization: Bearer <token>
+  # 留空或不配置 = 不启用鉴权(仅本机使用时建议留空)
+  mobile_token: "srvmon-9f3Kq7Wm2Rx8Vb4N"
+  # Caddy 反代路径前缀 (https://linxb.cn/server-monitor/ -> 隧道 18319 -> 8787)
+  url_prefix: "/server-monitor"
 
   thresholds:                 # 告警阈值(%): 超过 warn 记"警告", 超过 crit 记"严重"
     cpu_warn: 80
@@ -34,17 +40,28 @@ servers:
 
   # ---- 云脑 (ModelArts 昇腾 NPU 服务器) ----
   - name: notebook-9dde
-    ssh_alias: ZCode-notebook-9dde
+    ssh_alias: ModelArts-notebook-9dde
     group: 云脑
     enabled: true
 
   - name: cloudbrain-2gpu
-    ssh_alias: ZCode-cloudbrain-2gpu
+    ssh_alias: ModelArts-cloudbrain-2gpu
     group: 云脑
     enabled: true
 
   - name: personal-2gpu
-    ssh_alias: ZCode-personal-2gpu
+    ssh_alias: ModelArts-personal-2gpu
+    group: 云脑
+    enabled: true
+
+  - name: 4card-4t
+    ssh_alias: ModelArts-notebook-4card-4t
+    group: 云脑
+    enabled: true
+
+  # ---- 云脑3 Ascend 实例(经跳板机+ProxyCommand 隧道) ----
+  - name: cloudbrain-ascend
+    ssh_alias: cloudbrain-ascend
     group: 云脑
     enabled: true
 
@@ -65,6 +82,41 @@ servers:
     user: ubuntu
     key_file: C:/Users/linxb/.ssh/tx_lin.pem
     group: 云服务器
+    enabled: true
+
+  # ---- 本机对外通道/反向隧道(HTTP 健康检查 + SSH 进程探测) ----
+  - name: codeg 隧道
+    tunnel: true
+    label: codeg.nvlilia.com
+    check_url: http://127.0.0.1:3081/workspace
+    expect_code: 200
+    group: 本机通道
+    enabled: true
+
+  - name: AgentDock 隧道
+    tunnel: true
+    label: agent.nvlilia.com
+    check_url: http://127.0.0.1:8765/
+    expect_code: 200
+    group: 本机通道
+    enabled: true
+
+  - name: Azure 反向隧道
+    tunnel: true
+    label: 4.240.101.198:18317→8317
+    check_url: http://127.0.0.1:8317/
+    expect_code: 200
+    ssh_marker: lin_key.pem
+    group: 本机通道
+    enabled: true
+
+  - name: Tencent 反向隧道
+    tunnel: true
+    label: 43.159.143.82:18318→8317
+    check_url: http://127.0.0.1:8317/
+    expect_code: 200
+    ssh_marker: tx_lin.pem
+    group: 本机通道
     enabled: true
 
   # ---- 内网服务器(已在 ~/.ssh/config 中配置, 需要时把 enabled 改成 true) ----

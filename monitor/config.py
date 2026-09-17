@@ -16,6 +16,8 @@ DEFAULTS = {
     "listen_host": "127.0.0.1",
     "listen_port": 8787,
     "ssh_timeout": 10,
+    # 进程明细会增加远程命令开销，默认关闭；可在 settings 或单台服务器中开启
+    "process_detail": False,
 }
 
 DEFAULT_THRESHOLDS = {

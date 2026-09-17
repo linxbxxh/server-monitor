@@ -3,7 +3,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from monitor.collector import DemoCollector, LocalCollector, ServerCollector
+from monitor.collector import DemoCollector, LocalCollector, ServerCollector, TunnelCollector
 
 log = logging.getLogger("monitor.poller")
 
@@ -22,16 +22,18 @@ class BrokenCollector:
                 "error": self.error, "ts": time.time()}
 
 
-def build_collectors(servers, ssh_timeout):
+def build_collectors(servers, ssh_timeout, process_detail=False):
     collectors = []
     for s in servers:
         try:
             if s.get("local"):
                 collectors.append(LocalCollector(s))
+            elif s.get("tunnel"):
+                collectors.append(TunnelCollector(s))
             elif s.get("demo"):
                 collectors.append(DemoCollector(s))
             else:
-                collectors.append(ServerCollector(s, ssh_timeout))
+                collectors.append(ServerCollector(s, ssh_timeout, process_detail))
         except Exception as exc:
             log.error("服务器 %s 配置有误: %s", s.get("name"), exc)
             collectors.append(BrokenCollector(s, str(exc)))

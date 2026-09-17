@@ -19,6 +19,10 @@ verify_*.png
 live_card.png
 live-*.png
 card-*.png
+ui_mockup.png
+
+# 用户本地设置(位置/主题记忆)
+user_settings.json
 
 # 虚拟环境
 .venv/

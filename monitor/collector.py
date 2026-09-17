@@ -28,7 +28,14 @@ REMOTE_CMD = (
     "echo __GPU__; nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu,name "
     "--format=csv,noheader,nounits 2>/dev/null; "
     "echo __NPU__; (npu-smi info 2>/dev/null || /usr/local/sbin/npu-smi info 2>/dev/null) | head -200; "
+    "echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | grep -vE '(^|[[:space:]])(grep|head)[[:space:]]' | head -11; "
+    "echo __USERS__; who; "
     "echo __END__"
+)
+
+REMOTE_CMD_DETAIL = REMOTE_CMD.replace(
+    'echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -11; ',
+    'echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -11; '
 )
 
 NET_EXCLUDE = re.compile(
@@ -171,7 +178,7 @@ def _parse_npu(text):
         if len(cells) != 3 or len(toks) != 2:
             continue
 
-        if toks[1].isdigit():  # 芯片行: | chip phy-id | bus-id | AICore% mem hbm |
+        if toks[1].isdigit():  # 芯片行: | Chip Phy-ID | Bus-Id | AICore% Memory-Usage HBM-Usage |
             if pending is None:
                 continue
             m = _NPU_ROW_B.match(cells[2])
@@ -181,8 +188,10 @@ def _parse_npu(text):
             aicore, mu, mt, hu, ht = (int(x) for x in m.groups())
             if mt == 0:  # 910 系列 DDR 计数为 0, 显存以 HBM 为准
                 mu, mt = hu, ht
-            p = procs.get((card["npu"], int(toks[0])))
-            chips.append({"id": f'{card["npu"]}.{toks[0]}', "name": card["name"],
+            # toks[0] 是 Chip, toks[1] 是真实的 Phy-ID
+            chip_idx, phy_id = int(toks[0]), toks[1]
+            p = procs.get((card["npu"], chip_idx))
+            chips.append({"id": phy_id, "chip": chip_idx, "npu": card["npu"], "name": card["name"],
                           "health": card["health"], "temp_c": card["temp_c"],
                           "power_w": card["power_w"], "util": aicore,
                           "mem_used_gb": round(mu / 1024, 1), "mem_total_gb": round(mt / 1024, 1),
@@ -201,13 +210,16 @@ def _parse_npu(text):
 class ServerCollector:
     """单台服务器的 SSH 采集器(连接复用, 失败自动重连)。"""
 
-    def __init__(self, entry, ssh_timeout=10):
+    def __init__(self, entry, ssh_timeout=10, process_detail=False):
         self.name = entry["name"]
         self.group = entry.get("group") or ""
+        self.process_detail = entry.get("process_detail", process_detail)
         self.timeout = ssh_timeout
         self._client = None
         self._prev_net = None
-        self._lock = threading.Lock()
+        # 可重入锁: 覆盖整个 sample 生命周期(连接/执行/解析/网络基准),
+        # 防止手动刷新与周期轮询并发采集同一台服务器
+        self._lock = threading.RLock()
 
         alias = entry.get("ssh_alias")
         if alias:
@@ -220,25 +232,28 @@ class ServerCollector:
             ids = info.get("identityfile") or []
             self.key_file = os.path.expanduser(ids[0]) if ids else entry.get("key_file")
             self.password = info.get("password") or entry.get("password")
+            self.proxy_command = info.get("proxycommand")
         else:
             self.host = entry.get("host")
             self.port = int(entry.get("port", 22))
             self.user = entry.get("user")
             self.key_file = os.path.expanduser(entry["key_file"]) if entry.get("key_file") else None
             self.password = entry.get("password")
+            self.proxy_command = None
         if not self.host:
             raise RuntimeError("配置缺少 host 或 ssh_alias")
         self.label = f"{self.user or '?'}@{self.host}:{self.port}"
 
     def sample(self):
-        try:
-            data = self._collect()
-            data.update(name=self.name, label=self.label, group=self.group, online=True, error=None)
-            return data
-        except Exception as exc:
-            self._close()
-            return {"name": self.name, "label": getattr(self, "label", self.name), "group": self.group,
-                    "online": False, "error": f"{type(exc).__name__}: {exc}", "ts": time.time()}
+        with self._lock:   # 整个采样串行: 旧样本不会晚于新样本写回
+            try:
+                data = self._collect()
+                data.update(name=self.name, label=self.label, group=self.group, online=True, error=None)
+                return data
+            except Exception as exc:
+                self._close()
+                return {"name": self.name, "label": getattr(self, "label", self.name), "group": self.group,
+                        "online": False, "error": f"{type(exc).__name__}: {exc}", "ts": time.time()}
 
     def _close(self):
         if self._client is not None:
@@ -248,26 +263,94 @@ class ServerCollector:
                 pass
             self._client = None
 
+    def _make_proxy_sock(self):
+        """根据 proxycommand 启动子进程, 返回可用的 socket-like 对象。"""
+        import subprocess as _sp
+        import socket as _socket
+
+        proc = _sp.Popen(self.proxy_command, shell=True,
+                         stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.PIPE,
+                         creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0))
+
+        # paramiko 的 connect(sock=...) 需要一个有 settimeout() 和 fileno() 的对象;
+        # 用一个轻量适配器包装 Popen 的 stdin/stdout
+        class _PipeSock:
+            def __init__(self, p):
+                self._p = p
+                self._r = p.stdout
+                self._w = p.stdin
+                self._closed = False
+            def settimeout(self, t):
+                pass
+            def send(self, data):
+                try:
+                    self._w.write(data); self._w.flush()
+                    return len(data)
+                except Exception:
+                    return 0
+            def recv(self, n):
+                try:
+                    return self._r.read(n)
+                except Exception:
+                    return b""
+            def close(self):
+                self._closed = True
+                try:
+                    self._p.terminate()
+                except Exception:
+                    pass
+            def fileno(self):
+                return self._r.fileno()
+        return _PipeSock(proc)
+
     def _connect(self):
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(self.host, port=self.port, username=self.user,
-                       key_filename=self.key_file, password=self.password,
-                       timeout=self.timeout, banner_timeout=self.timeout,
-                       auth_timeout=self.timeout, allow_agent=False, look_for_keys=False)
-        return client
+        # paramiko 会读取 HTTP(S)_PROXY/ALL_PROXY 环境变量并让 SSH 走代理,
+        # 而本机常年开着 https_proxy=http://127.0.0.1:7890: 经代理连 SSH 会额外握手
+        # 甚至被中间设备干扰, 表现为 "Error reading SSH protocol banner"。监控直连
+        # 目标机即可, 这里临时清空代理变量(仅影响本次 connect 调用)。
+        proxy_vars = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+                      "http_proxy", "https_proxy", "all_proxy", "no_proxy")
+        saved = {k: os.environ.pop(k, None) for k in proxy_vars}
+        try:
+            client = paramiko.SSHClient()
+            # 先加载系统 known_hosts: 已录入指纹的主机会被严格校验,
+            # 未录入的新主机才自动信任并录入(TOFU), 防止指纹已变的主机被静默接受
+            client.load_system_host_keys()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            sock = None
+            if self.proxy_command:
+                sock = self._make_proxy_sock()
+            # banner/auth 超时给足余量: 跨境链路单次握手可能 >10s(实测 paramiko 直连
+            # 海外机需 ~10.4s), 沿用 ssh_timeout 会在网络抖动时抛 "Error reading SSH
+            # protocol banner"。连接超时仍用较短值以便快速失败。
+            handshake_timeout = max(self.timeout * 3, 30)
+            client.connect(self.host, port=self.port, username=self.user,
+                           key_filename=self.key_file, password=self.password,
+                           timeout=self.timeout, banner_timeout=handshake_timeout,
+                           auth_timeout=handshake_timeout, allow_agent=False,
+                           look_for_keys=False, sock=sock)
+            return client
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v
 
     def _exec(self):
         if self._client is None:
             self._client = self._connect()
-        _, stdout, _ = self._client.exec_command(REMOTE_CMD, timeout=self.timeout * 3)
+        try:
+            _, stdout, _ = self._client.exec_command(REMOTE_CMD if self.process_detail else REMOTE_CMD.replace('echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -11; ', 'echo __PROC__;'), timeout=self.timeout * 3)
+        except (paramiko.SSHException, paramiko.ssh_exception.SSHException, EOFError, ConnectionResetError, OSError):
+            # 会话失效, 强制关闭并重建
+            self._close()
+            self._client = self._connect()
+            _, stdout, _ = self._client.exec_command(REMOTE_CMD if self.process_detail else REMOTE_CMD.replace('echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -11; ', 'echo __PROC__;'), timeout=self.timeout * 3)
         out = stdout.read().decode("utf-8", "replace")
         stdout.channel.recv_exit_status()
         return out
 
     def _collect(self):
-        with self._lock:
-            out = self._exec()
+        out = self._exec()   # 锁由 sample() 持有, 这里不再重复加锁
         s = _sections(out)
         if "END" not in s:
             raise RuntimeError("远程输出不完整(目标机需为 Linux)")
@@ -305,6 +388,18 @@ class ServerCollector:
             rx_rate = tx_rate = None
         self._prev_net = (now, rx, tx)
 
+        processes = []
+        if self.process_detail:
+            for line in (s.get("PROC") or "").splitlines()[1:]:
+                p = line.split(None, 4)
+                if len(p) == 5:
+                    try:
+                        proc_name = p[4]
+                        if proc_name == "grep" or proc_name == "head" or proc_name.startswith("grep "):
+                            continue
+                        processes.append({"pid": int(p[0]), "user": p[1], "cpu_percent": float(p[2]), "mem_percent": float(p[3]), "name": proc_name})
+                    except ValueError: pass
+        users = sorted({line.split()[0] for line in (s.get("USERS") or "").splitlines() if line.split()}) if self.process_detail else []
         gpus = _parse_gpu(s.get("GPU") or "")
         npus = _parse_npu(s.get("NPU") or "")
         if npus:
@@ -317,7 +412,8 @@ class ServerCollector:
         disks, disks_hidden = _disk_info(s.get("DISK") or "")
         return {"ts": now, "cpu_percent": cpu, "mem": _mem_info(s.get("MEM") or ""),
                 "disks": disks, "disks_hidden": disks_hidden, "load": load, "cores": cores,
-                "uptime_days": uptime_days, "net_rx_kbps": round(rx_rate, 1) if rx_rate is not None else None,
+                "uptime_days": uptime_days, "usage": {"cpu_percent": cpu, "mem_percent": ( _mem_info(s.get("MEM") or "") or {}).get("percent")}, "processes": processes, "users": users,
+                "net_rx_kbps": round(rx_rate, 1) if rx_rate is not None else None,
                 "net_tx_kbps": round(tx_rate, 1) if tx_rate is not None else None, "accel": accel}
 
 
@@ -378,7 +474,7 @@ class LocalCollector:
                     "ts": time.time(), "cpu_percent": cpu, "mem": mem,
                     "disks": disks[:6], "disks_hidden": max(0, len(disks) - 6),
                     "load": [], "cores": psutil.cpu_count(), "uptime_days": None,
-                    "net_rx_kbps": None, "net_tx_kbps": None, "accel": accel}
+                    "net_rx_kbps": None, "net_tx_kbps": None, "usage": {"cpu_percent": cpu, "mem_percent": mem["percent"]}, "processes": [], "users": [], "accel": accel}
         except Exception as exc:
             return {"name": self.name, "label": self.label, "group": self.group, "online": False,
                     "error": f"{type(exc).__name__}: {exc}", "ts": time.time()}
@@ -420,3 +516,83 @@ class DemoCollector:
                 "disks": self.disks, "disks_hidden": 0, "load": [round(self.cpu / 100 * 8, 2)] * 3,
                 "cores": 8, "uptime_days": 42.5,
                 "net_rx_kbps": self.rx, "net_tx_kbps": round(self.rx / 4, 1), "accel": accel}
+
+
+class TunnelCollector:
+    """本机通道/反向隧道健康检查(config 中 tunnel: true 时使用)。
+
+    通过 HTTP 健康检查验证通道可达性, 可选探测 SSH 反向隧道进程是否存活。
+    不需要 SSH 连接, 只做轻量探测, 反映"这条对外通道现在通不通"。
+    """
+
+    def __init__(self, entry, ssh_timeout=10):
+        self.name = entry["name"]
+        self.group = entry.get("group") or ""
+        self.label = entry.get("label") or entry.get("name")
+        self.check_url = entry.get("check_url")          # 本地或公网健康检查地址
+        self.expect_code = entry.get("expect_code")      # 期望的 HTTP 状态码(默认 200; agentdock 用 401)
+        self.ssh_marker = entry.get("ssh_marker")        # SSH 反向隧道命令行特征串(如 lin_key.pem + 18317)
+        self.timeout = 8
+
+    def _http_ok(self):
+        if not self.check_url:
+            return None, None
+        import urllib.request
+        try:
+            req = urllib.request.Request(self.check_url, headers={"User-Agent": "tunnel-monitor"})
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                code = r.getcode()
+        except urllib.error.HTTPError as e:   # 401/403 也代表通道通了
+            code = e.code
+        except Exception as e:
+            return False, f"{type(e).__name__}: {e}"
+        want = self.expect_code if self.expect_code is not None else 200
+        if isinstance(want, int):
+            want = [want]
+        ok = code in want
+        return ok, f"HTTP {code}"
+
+    def _ssh_alive(self):
+        if not self.ssh_marker:
+            return None
+        try:
+            import subprocess as sp
+            # marker 用不带扩展名的密钥名特征, 如 lin_key / tx_lin
+            marker = self.ssh_marker.split(".")[0]
+            # wmic 查询 ssh.exe 且命令行含 marker 的进程数, 比 CimInstance 在子进程里更稳
+            cmd = f'wmic process where "name=\'ssh.exe\' and CommandLine like \'%{marker}%\'" get ProcessId /format:csv'
+            out = sp.run(cmd, capture_output=True, text=True, timeout=self.timeout,
+                         errors="replace",
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+            # wmic csv 输出含表头, 数有内容的行
+            lines = [l for l in out.splitlines() if l.strip() and "," in l and "ProcessId" not in l]
+            return len(lines) > 0
+        except Exception:
+            return None   # 探测失败时不影响主判定
+
+    def sample(self):
+        http_ok, http_msg = self._http_ok()
+        ssh_ok = self._ssh_alive()
+
+        # 判定: 有 check_url 以它为准; 有 ssh_marker 要求进程也存活
+        if http_ok is None:      # 只配了 ssh_marker
+            online = bool(ssh_ok)
+            msg = "SSH 隧道进程存活" if online else "SSH 隧道进程丢失"
+        else:
+            online = bool(http_ok)
+            msg = http_msg
+            if online and ssh_ok is False:
+                online = False
+                msg = f"{http_msg} 但 SSH 隧道进程丢失"
+            elif online:
+                msg = http_msg + (" + 隧道进程存活" if ssh_ok else "")
+
+        # 通道类不设 cpu/mem 百分比, 避免 _evaluate 把"在线"误判成资源超限
+        return {"name": self.name, "label": self.label, "group": self.group,
+                "online": online, "error": None if online else msg, "is_tunnel": True,
+                "ts": time.time(), "cpu_percent": None,
+                "mem": {"total_gb": None, "used_gb": None, "percent": None},
+                "disks": [], "disks_hidden": 0, "load": [], "cores": None,
+                "uptime_days": None, "net_rx_kbps": None, "net_tx_kbps": None,
+                "accel": {"type": None, "items": []},
+                "tunnel_msg": msg}

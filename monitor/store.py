@@ -23,8 +23,12 @@ class MonitorState:
 
     def update(self, s):
         name = s["name"]
-        level, reasons = self._evaluate(s)
         with self.lock:
+            # 并发场景下旧样本可能晚到, 不允许覆盖更新的数据
+            prev_s = self.current.get(name)
+            if prev_s is not None and (s.get("ts") or 0) < (prev_s.get("ts") or 0):
+                return
+            level, reasons = self._evaluate(s)
             prev = self.status.get(name)
             self.status[name] = level
             self.current[name] = s
@@ -45,7 +49,7 @@ class MonitorState:
         reasons = []
         cpu, mem = s.get("cpu_percent"), (s.get("mem") or {}).get("percent")
 
-        def check(kind, label, v, warn, crit):
+        def check(label, v, warn, crit):
             nonlocal level
             if v is None:
                 return
@@ -56,10 +60,10 @@ class MonitorState:
                 level = "warn"
                 reasons.append(f"{label} {v}% ≥ {warn}%")
 
-        check("cpu", "CPU", cpu, self.cpu_warn, self.cpu_crit)
-        check("mem", "内存", mem, self.mem_warn, self.mem_crit)
+        check("CPU", cpu, self.cpu_warn, self.cpu_crit)
+        check("内存", mem, self.mem_warn, self.mem_crit)
         for d in s.get("disks") or []:
-            check("disk", f"磁盘{d['mount']}", d.get("percent"), self.disk_warn, self.disk_crit)
+            check(f"磁盘{d['mount']}", d.get("percent"), self.disk_warn, self.disk_crit)
         return level, reasons
 
     def _alert(self, name, level, reasons):
@@ -85,4 +89,43 @@ class MonitorState:
             for st in self.status.values():
                 counts[st] = counts.get(st, 0) + 1
             alerts = list(self.alerts)[:30]
+        return {"ts": time.time(), "servers": servers, "alerts": alerts, "counts": counts}
+
+    def summary(self):
+        """轻量摘要: 手机悬浮窗/移动端轮询用, 不含 history/磁盘/进程明细, 控制流量。"""
+        with self.lock:
+            servers = []
+            for name, s in self.current.items():
+                accel = s.get("accel") or {}
+                chips = accel.get("items") or []
+                utils = [c.get("util") for c in chips if c.get("util") is not None]
+                mem = s.get("mem") or {}
+                st = self.status.get(name, "down" if not s.get("online") else "ok")
+                # 主要程序: 进程明细里 CPU 最高的前 1 个
+                procs = s.get("processes") or []
+                top = procs[0] if procs else None
+                servers.append({
+                    "name": s.get("name"),
+                    "group": s.get("group") or "其他",
+                    "online": s.get("online"),
+                    "status": st,
+                    "error": s.get("error"),
+                    "cpu_percent": s.get("cpu_percent"),
+                    "mem_percent": mem.get("percent"),
+                    "accel_type": accel.get("type"),
+                    "accel_count": len(chips),
+                    "accel_util": round(sum(utils) / len(utils)) if utils else None,
+                    "hbm_used": round(sum(c.get("mem_used_gb") or 0 for c in chips), 1) if chips else None,
+                    "hbm_total": round(sum(c.get("mem_total_gb") or 0 for c in chips), 1) if chips else None,
+                    "top_process": ({"name": top.get("name"), "cpu_percent": top.get("cpu_percent")}
+                                    if top else None),
+                    "is_tunnel": s.get("is_tunnel", False),
+                })
+            counts = {"ok": 0, "warn": 0, "crit": 0, "down": 0}
+            for st in self.status.values():
+                counts[st] = counts.get(st, 0) + 1
+            # 摘要只带最近 5 条告警
+            alerts = [{"t": a.get("t"), "name": a.get("name"),
+                       "level": a.get("level"), "msg": a.get("msg")}
+                      for a in list(self.alerts)[:5]]
         return {"ts": time.time(), "servers": servers, "alerts": alerts, "counts": counts}

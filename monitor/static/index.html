@@ -2,8 +2,15 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0e16">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="./static/manifest.webmanifest">
+<link rel="icon" href="./static/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./static/icons/icon-192.png">
 <title>服务器监控</title>
 <style>
   :root{
@@ -119,6 +126,11 @@
         margin-top:14px;border-top:1px dashed var(--line);padding-top:10px;font-variant-numeric:tabular-nums}
   .fl{color:var(--dim);margin-right:5px}
 
+  /* ── 分组标题(移动端折叠视图) ───────────────── */
+  .gtitle{grid-column:1/-1;color:var(--muted);font-size:12.5px;font-weight:600;letter-spacing:1.5px;
+          margin:14px 0 -4px;display:flex;align-items:center;gap:9px}
+  .gtitle::after{content:"";flex:1;height:1px;background:var(--line-soft)}
+
   /* ── 离线 ─────────────────────────────── */
   .offline{padding:30px 8px 24px;text-align:center;color:var(--muted)}
   .off-icon{font-size:30px;margin-bottom:8px;filter:grayscale(.3)}
@@ -145,6 +157,35 @@
   .amsg{color:var(--muted)}
   .alerts .empty{padding:15px}
   footer{color:var(--dim);font-size:11.5px;text-align:center;padding:14px 0 24px}
+
+  /* ── 手机端适配 (≤600px 单列, 触控优化) ───────── */
+  @media (max-width: 600px){
+    header{padding:10px 14px;gap:8px}
+    .brand{font-size:15px}
+    .summary{gap:5px;width:100%;order:3}
+    .chip{font-size:11px;padding:3px 9px}
+    .meta{margin-left:auto;font-size:11px;gap:7px}
+    .ghost{padding:6px 14px;font-size:12px}   /* 触控目标 ≥44px 高 */
+    main{padding:14px 12px 6px}
+    .grid{grid-template-columns:1fr;gap:12px}
+    .card{padding:13px 14px 11px;border-radius:13px}
+    .card:hover{transform:none}               /* 触屏无意义, 关掉位移 */
+    .ct{font-size:14.5px}
+    .chost{font-size:10.5px;word-break:break-all}
+    .agroup{grid-template-columns:34px 1fr 74px;gap:7px}
+    .disk{grid-template-columns:84px 1fr 118px;gap:8px}
+    .foot{gap:3px 12px;font-size:11px}
+    .alerts{padding:0 12px}
+    .alerts li{flex-wrap:wrap;gap:5px 9px;padding:8px 12px}
+    .amsg{width:100%;padding-left:16px;word-break:break-all}
+    .gtitle{margin-top:10px}
+    footer{padding:10px 12px 20px}
+  }
+  /* 安全区(iPhone 刘海/底部横条) */
+  @supports (padding: env(safe-area-inset-top)){
+    header{padding-left:max(14px, env(safe-area-inset-left));padding-right:max(14px, env(safe-area-inset-right))}
+    body{padding-bottom:env(safe-area-inset-bottom)}
+  }
 </style>
 </head>
 <body>
@@ -248,6 +289,19 @@ function offlineBody(s){
     <div class="off-err">${esc(s.error || "未知错误")}</div></div>`;
 }
 
+function usageBlock(s){
+  if (s.is_tunnel) return "";
+  const u = s.usage || {};
+  const rows = [["使用", u.status ?? s.usage_status], ["用户", u.users ?? s.users], ["进程", u.processes ?? s.processes]]
+    .filter(([,v]) => v != null && v !== "");
+  if (!rows.length) return "";
+  return `<div class="metric usage"><div class="mrow"><span class="mlabel">使用情况</span></div>` +
+    rows.map(([k,v]) => {
+      const text = Array.isArray(v) ? v.slice(0,4).map(x => typeof x === "object" ? `${x.name || "?"}(${x.pid || "?"}) ${Math.round(x.cpu_percent || 0)}%` : String(x)).join(", ") : String(v);
+      return `<div class="msub"><span class="fl">${esc(k)}</span> ${esc(text)}</div>`;
+    }).join("") + `</div>`;
+}
+
 function card(s){
   const st = s.status || "down";
   const mem = s.mem || {};
@@ -266,6 +320,7 @@ function card(s){
     </div>
     ${accelBlock(s.accel) ||
       `<div class="mrow" style="margin-top:13px"><span class="mlabel">加速卡</span><span class="dim-s">未检测到 NPU / GPU</span></div>`}
+    ${usageBlock(s)}
     ${(s.disks || []).length ? `<div class="metric">
       <div class="mrow"><span class="mlabel">磁盘</span>
         <span class="mval mval-s">${s.disks.length} 个挂载${s.disks_hidden ? ` · 另 ${s.disks_hidden} 个未显示` : ""}</span></div>
@@ -292,8 +347,22 @@ function card(s){
 
 function render(d){
   const sv = d.servers || [];
+  // 按 group 分组保持顺序(移动端折叠视图), 桌面端分组标题同样可读
+  const groups = [];
+  for (const s of sv){
+    const g = s.group || "其他";
+    let bucket = groups.find(x => x.name === g);
+    if (!bucket){ bucket = {name: g, items: []}; groups.push(bucket); }
+    bucket.items.push(s);
+  }
+  let html = "";
+  for (const g of groups){
+    if (groups.length > 1 || g.name !== "其他")
+      html += `<div class="gtitle">${esc(g.name)}</div>`;
+    html += g.items.map(card).join("");
+  }
   document.getElementById("grid").innerHTML =
-    sv.map(card).join("") || `<div class="empty">config.yaml 中没有启用的服务器</div>`;
+    html || `<div class="empty">config.yaml 中没有启用的服务器</div>`;
   const c = d.counts || {};
   document.getElementById("summary").innerHTML =
     ["ok","warn","crit","down"].map(k =>
@@ -310,10 +379,16 @@ function render(d){
   lastOk = true;
 }
 
-/* ── 自动刷新(5s) + 倒计时 + 暂停 ─────────────── */
+/* ── 自动刷新(5s) + 倒计时 + 暂停 + 手机前后台处理 ── */
 const REFRESH = 5;
 let remain = REFRESH, paused = false, lastOk = false, busy = false, lastTime = null;
 const metaEl = document.getElementById("meta");
+
+/* 访问令牌: 手机远程访问时通过 ?token= 注入, 存 localStorage 后从地址栏清除 */
+const qs = new URLSearchParams(location.search);
+if (qs.get("token")){ localStorage.setItem("mon_token", qs.get("token")); history.replaceState(null, "", location.pathname); }
+const TOKEN = localStorage.getItem("mon_token") || "";
+const authHeaders = TOKEN ? {Authorization: "Bearer " + TOKEN} : {};
 
 function updateMeta(){
   if (paused){ metaEl.textContent = "已暂停自动刷新" + (lastTime ? ` · 更新于 ${timeStr(lastTime)}` : ""); return; }
@@ -324,11 +399,15 @@ async function refresh(){
   if (busy) return;
   busy = true;
   try{
-    const r = await fetch("/api/status", {cache: "no-store"});
+    const r = await fetch("/api/status", {cache: "no-store", headers: authHeaders});
+    if (r.status === 401){
+      metaEl.textContent = "访问令牌无效 — 在地址栏加 ?token=<令牌> 重新进入";
+      lastOk = false; busy = false; return;
+    }
     render(await r.json());
     lastTime = Date.now();
   }catch(e){
-    metaEl.textContent = "无法连接后端(python app.py 未运行?)";
+    metaEl.textContent = "无法连接后端" + (lastTime ? ` · 最后更新 ${timeStr(lastTime)}` : "(python app.py 未运行?)");
     lastOk = false;
   }
   remain = REFRESH;
@@ -346,11 +425,22 @@ btn.onclick = () => {
 
 setInterval(() => {
   if (paused) return;
+  if (document.hidden) return;   // 后台时不倒计时
   remain--;
   if (remain <= 0) refresh(); else updateMeta();
 }, 1000);
 
+// 手机回前台立即刷新; 断网恢复后 5 秒内重试
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && !paused){ remain = 0; }
+});
+window.addEventListener("online", () => { if (!paused) remain = 0; });
+
 refresh();
+
+/* ── PWA: Service Worker 注册(相对路径, 兼容反向代理前缀) ── */
+if ("serviceWorker" in navigator && location.protocol !== "file:")
+  navigator.serviceWorker.register("static/sw.js?v=2").catch(() => {});
 </script>
 </body>
 </html>
