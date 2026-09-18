@@ -158,9 +158,39 @@
 
   .compact-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 14px;
     align-items: stretch;
+  }
+  @media (min-width: 1180px) {
+    .compact-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  /* ── 云服务器合并单元样式 ───────────────────── */
+  .cloud-cluster-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+    justify-content: space-around;
+  }
+  .sub-cloud-unit {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .sub-cloud-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .cloud-divider {
+    height: 1px;
+    background: var(--line);
+    margin: 3px 0;
   }
 
   /* 服务器卡片 */
@@ -551,6 +581,84 @@ function renderCard(s){
   </div>`;
 }
 
+/* ── 合并轻量云服务器卡片 (azure-lin & myserver 组合并) ── */
+function renderMergedCloudCard(servers){
+  if (!servers || !servers.length) return "";
+  const isAnyWarn = servers.some(s => s.status === "warn");
+  const isAnyCrit = servers.some(s => s.status === "crit");
+  const st = isAnyCrit ? "crit" : (isAnyWarn ? "warn" : "ok");
+
+  const subItems = servers.map(s => {
+    const mem = s.mem || {};
+    const s_st = s.status || "ok";
+
+    let procHtml = "";
+    const procs = s.processes || [];
+    if (procs.length > 0){
+      const pills = procs.slice(0, 3).map(p =>
+        `<span class="proc-pill">${esc(p.name || "?")}<b>${Math.round(p.cpu_percent || 0)}%</b></span>`
+      ).join("");
+      procHtml = `<div class="proc-row" style="margin-top:2px;"><span class="icon">⚡</span>${pills}</div>`;
+    }
+
+    const disks = s.disks || [];
+    let diskStr = "";
+    if (disks.length > 0){
+      const worst = disks.reduce((a,b) => (a.percent > b.percent ? a : b), disks[0]);
+      diskStr = `盘 ${Math.round(worst.percent)}%`;
+    }
+    const loadStr = (s.load && s.load.length) ? `负载 ${s.load[0].toFixed(1)}` : "";
+    const netStr = s.net_rx_kbps != null ? `↓${fmtRate(s.net_rx_kbps)}` : "";
+    const upStr = s.uptime_days != null ? `行 ${fmtUptime(s.uptime_days)}` : "";
+
+    return `<div class="sub-cloud-unit">
+      <div class="sub-cloud-head">
+        <div class="c-left">
+          <span class="c-dot ${s_st}"></span>
+          <span class="c-name" style="font-size:13.5px;">${esc(s.name)}</span>
+          <span class="c-host" style="margin:0;font-size:10.5px;">${esc(s.label || "")}</span>
+        </div>
+        <span class="badge ${esc(s_st)}" style="font-size:10px;padding:1px 8px;">${levelText(s_st)}</span>
+      </div>
+      <div class="metrics-compact" style="margin:2px 0;">
+        <div class="mbox">
+          <div class="mhead">
+            <span class="label">CPU</span>
+            <span class="val ${tint(s.cpu_percent)}">${s.cpu_percent == null ? "—" : s.cpu_percent.toFixed(1) + "%"}</span>
+          </div>
+          ${bar(s.cpu_percent, "f-cpu", 80, 95)}
+        </div>
+        <div class="mbox">
+          <div class="mhead">
+            <span class="label">内存</span>
+            <span class="val ${tint(mem.percent, 85, 95)}">${mem.percent == null ? "—" : mem.percent.toFixed(1) + "%"}</span>
+          </div>
+          ${bar(mem.percent, "f-mem", 85, 95)}
+          <div class="msub">${fmtGB(mem.used_gb)}/${fmtGB(mem.total_gb)}</div>
+        </div>
+      </div>
+      ${procHtml}
+      <div class="card-foot" style="padding-top:4px;margin-top:2px;">
+        <span>${[diskStr, loadStr].filter(Boolean).join(" · ")}</span>
+        <span>${[netStr, upStr].filter(Boolean).join(" · ")}</span>
+      </div>
+    </div>`;
+  }).join('<div class="cloud-divider"></div>');
+
+  return `<div class="card ${esc(st)}">
+    <div class="chead" style="margin-bottom:2px;">
+      <div class="c-left">
+        <span class="c-name" style="font-size:14px;">☁️ 云服务器集群</span>
+        <span class="c-group">轻量节点 · ${servers.length}台</span>
+      </div>
+      <span class="badge ${esc(st)}">${levelText(st)}</span>
+    </div>
+    <div class="cloud-cluster-body">
+      ${subItems}
+    </div>
+  </div>`;
+}
+
 function render(d){
   const allServers = d.servers || [];
 
@@ -559,7 +667,7 @@ function render(d){
 
   // 2. 区分通道与真实主机
   const tunnels = onlineServers.filter(s => s.is_tunnel);
-  const servers = onlineServers.filter(s => !s.is_tunnel);
+  const realServers = onlineServers.filter(s => !s.is_tunnel);
 
   // 渲染通栏通道条
   const tunnelsBar = document.getElementById("tunnels-bar");
@@ -578,9 +686,26 @@ function render(d){
     tunnelsBar.style.display = "none";
   }
 
+  // 3. 提取轻量云服务器 (azure-lin & myserver)，将它们合并成一个卡片
+  const cloudServers = realServers.filter(s =>
+    s.group === "云服务器" || s.name === "azure-lin" || s.name === "myserver"
+  );
+  const otherServers = realServers.filter(s =>
+    s.group !== "云服务器" && s.name !== "azure-lin" && s.name !== "myserver"
+  );
+
+  let cardsHtml = "";
+  // 正常服务器
+  cardsHtml += otherServers.map(renderCard).join("");
+  // 合并云服务器卡片 (如果存在)
+  if (cloudServers.length > 1) {
+    cardsHtml += renderMergedCloudCard(cloudServers);
+  } else if (cloudServers.length === 1) {
+    cardsHtml += renderCard(cloudServers[0]);
+  }
+
   // 渲染在线主机卡片 (紧凑一屏全览网格)
-  document.getElementById("grid").innerHTML = servers.length ?
-    servers.map(renderCard).join("") :
+  document.getElementById("grid").innerHTML = cardsHtml ||
     `<div style="grid-column:1/-1;text-align:center;padding:50px;color:var(--dim)">无在线主机节点</div>`;
 
   // 顶部汇总
