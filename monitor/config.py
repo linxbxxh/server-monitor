@@ -10,6 +10,12 @@ def _base_dir():
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+def _bundled_dir():
+    """打包后内置资源目录 (PyInstaller 的 _MEIPASS)"""
+    if getattr(sys, "frozen", False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 DEFAULTS = {
     "interval_seconds": 15,
     "history_points": 180,
@@ -28,7 +34,11 @@ DEFAULT_THRESHOLDS = {
 
 
 def load_config(path=None):
-    path = path or os.path.join(_base_dir(), "config.yaml")
+    # 优先级: 命令行指定 > exe 旁边的 config.yaml > 内置的 config.yaml
+    if path is None:
+        external = os.path.join(_base_dir(), "config.yaml")
+        bundled = os.path.join(_bundled_dir(), "config.yaml")
+        path = external if os.path.exists(external) else bundled
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 

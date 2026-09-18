@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, send_file
 
 
 def _resource_dir():
@@ -73,8 +73,26 @@ def create_app(state, settings):
         data["interval"] = settings["interval_seconds"]
         return jsonify(data)
 
-    @app.get("/healthz")
+    @_route("/healthz")
     def healthz():
         return jsonify({"ok": True, "ts": time.time()})
+
+    # EXE 下载 (带 token 保护, 不放 static 目录避免被 PWA 缓存)
+    @_route("/download/ServerMonitor.exe")
+    def download_exe():
+        if not _authorized():
+            return _need_auth()
+        exe_dir = _resource_dir()
+        # exe 和 widget.py 同级
+        exe_path = os.path.join(exe_dir, "ServerMonitor.exe")
+        if not os.path.exists(exe_path):
+            # 打包后 exe 在 sys.executable 所在目录
+            if getattr(sys, "frozen", False):
+                exe_path = os.path.join(os.path.dirname(sys.executable), "ServerMonitor.exe")
+        if not os.path.exists(exe_path):
+            return jsonify({"error": "exe not found"}), 404
+        return send_file(exe_path, as_attachment=True,
+                         download_name="ServerMonitor.exe",
+                         mimetype="application/octet-stream")
 
     return app
