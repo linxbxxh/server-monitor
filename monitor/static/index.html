@@ -310,6 +310,18 @@
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 5px;
   }
+  .chips-mini-strip { display: none; }
+  .chip-mini-pill {
+    font-size: 9.5px;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-family: Consolas, monospace;
+    color: #a7f3d0;
+    white-space: nowrap;
+  }
+  .chip-mini-pill b { color: #34d399; font-weight: 600; margin-left: 2px; }
   .chip-item {
     background: rgba(15, 23, 42, 0.55);
     border: 1px solid var(--line);
@@ -378,6 +390,7 @@
     font-variant-numeric: tabular-nums;
   }
   .card-foot span { white-space: nowrap; }
+  .m-proc-inline { display: none; }
 
   /* ── 底部版权与下载 ─────────────────────────── */
   footer {
@@ -400,64 +413,99 @@
   }
   .dl-links a:hover { color: #fff; border-color: var(--c-cpu); }
 
-  /* ── 移动端适配 ─────────────────────────────── */
+  /* ── 移动端适配 (超紧凑一页全览，不折叠，全部直接显示) ── */
   @media (max-width: 768px) {
-    header { padding: 8px 12px; gap: 8px; }
-    .brand { font-size: 13px; }
-    .meta { font-size: 10px; gap: 6px; }
-    .ghost { padding: 4px 10px; font-size: 10px; }
-    .summary-chips { gap: 4px; }
-    .chip { font-size: 10px; padding: 2px 6px; }
-    .tunnels-bar { padding: 5px 12px; gap: 6px; }
-    .tunnel-pill { padding: 2px 7px; font-size: 10px; }
+    header { padding: 4px 8px; gap: 5px; }
+    .brand { font-size: 12px; gap: 4px; }
+    .brand svg { width: 13px; height: 13px; }
+    .meta { font-size: 9px; gap: 4px; }
+    .ghost { padding: 1px 5px; font-size: 8.5px; }
+    .summary-chips { gap: 3px; }
+    .chip { font-size: 8.5px; padding: 0 4px; gap: 2px; }
+    .chip i { width: 4px; height: 4px; }
+
+    /* 通道栏: 紧凑细条 */
+    .tunnels-bar { padding: 2px 6px; gap: 4px; }
+    .tunnels-title { font-size: 8.5px; }
+    .tunnel-pill { padding: 0 4px; font-size: 8.5px; gap: 2px; line-height: 14px; }
+    .tunnel-pill .tdot { width: 4px; height: 4px; }
     .tunnel-pill .tmsg { display: none; }
 
-    /* 主区域: 紧凑列表, 非网格 */
-    main { padding: 8px 10px; }
+    /* 主网格: 极简间距，完美一屏全览 */
+    main { padding: 3px 6px; }
     .compact-grid {
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 3px;
     }
 
-    /* 卡片改为紧凑横向摘要行 */
+    /* 卡片主体: 每一台都直接展开、超薄紧凑 */
     .card {
-      padding: 8px 10px;
-      border-radius: 8px;
-      gap: 4px;
+      padding: 4px 7px 3px;
+      border-radius: 6px;
+      gap: 2px;
+      box-shadow: none;
     }
-    .card::before { width: 3px; }
+    .card::before { width: 2.5px; }
 
-    /* 隐藏桌面端的并排指标网格, 改用单行紧凑 */
-    .card .metrics-compact { display: none; }
-    .card .accel-box { display: none; }
-    .card .proc-row { display: none; }
-    .card .card-foot { display: none; }
-    .card .c-host { display: none; }
+    /* 头部 */
+    .chead { gap: 4px; }
+    .c-name { font-size: 12px; }
+    .c-group { font-size: 9px; padding: 0 4px; }
+    .c-host { display: none; } /* 移动端省略详细 host 节约高度 */
+    .badge { font-size: 8px; padding: 0 3px; line-height: 11px; }
 
-    /* 紧凑摘要行: 名字 + 状态 + 关键指标 */
-    .mobile-row { display: flex !important; align-items: center; gap: 8px; font-size: 12px; }
-    .card .chead { display: none; }
-    .card.expanded .chead { display: flex; }
-    .card.expanded .metrics-compact { display: grid; }
-    .card.expanded .accel-box { display: flex; }
-    .card.expanded .proc-row { display: flex; }
-    .card.expanded .card-foot { display: flex; }
-    .card.expanded .c-host { display: block; }
-    .card.expanded .mobile-row { display: none; }
-    .mobile-row .m-name { font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px; }
-    .mobile-row .m-stat { flex: 1; display: flex; gap: 6px; align-items: center; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
-    .mobile-row .m-bar { width: 50px; height: 4px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; flex: none; }
-    .mobile-row .m-bar .fill { height: 100%; border-radius: 99px; }
+    /* CPU & 内存并排指标条: 超紧凑 */
+    .metrics-compact {
+      padding: 1.5px 4px;
+      gap: 5px;
+      border-radius: 3px;
+    }
+    .mhead { font-size: 8.5px; }
+    .mhead .val { font-size: 8.5px; }
+    .bar { height: 2px; }
+    .msub { display: none; } /* 移动端省略详细GB文字，防止被卡片右侧裁切 */
 
-    /* 合并云服务器的子行也紧凑 */
-    .sub-cloud-unit .metrics-compact { display: none; }
-    .sub-cloud-unit .proc-row { display: none; }
-    .sub-cloud-unit .card-foot { display: none; }
-    .sub-cloud-unit .c-host { display: none; }
+    /* 加速卡: 隐藏多行大网格, 展示单行紧凑芯片流 */
+    .accel-box { gap: 1px; }
+    .accel-title-row { font-size: 8px; }
+    .chips-dense-grid { display: none !important; }
+    .chips-mini-strip {
+      display: flex !important;
+      flex-wrap: wrap;
+      gap: 1px 2.5px;
+      align-items: center;
+    }
+    .chip-mini-pill {
+      font-size: 7.5px;
+      padding: 0 2px;
+      border-radius: 2px;
+      line-height: 10px;
+    }
 
-    footer { flex-direction: column; gap: 6px; padding: 10px 12px; }
-    .dl-links a { font-size: 10px; padding: 3px 8px; }
+    /* 手机端隐藏多行 proc pills，并在 card-foot 内单行内联展示 */
+    .proc-row { display: none !important; }
+    .m-proc-inline { display: inline !important; }
+    .m-proc-inline b { color: var(--c-cpu); font-weight: 600; margin-left: 2px; }
+
+    /* 底部指标行 */
+    .card-foot {
+      padding-top: 1px;
+      margin-top: 0px;
+      font-size: 8px;
+      gap: 3px;
+      line-height: 11px;
+    }
+
+    /* 云服务器集群合并卡片内部紧凑 */
+    .cloud-cluster-body { gap: 1.5px; }
+    .sub-cloud-unit { gap: 0.5px; }
+    .sub-cloud-head .c-name { font-size: 10px; }
+    .cloud-divider { margin: 1px 0; }
+
+    footer { padding: 3px 6px 5px; gap: 2px; }
+    #alert-summary { font-size: 8px; }
+    .dl-links a { font-size: 7.5px; padding: 1px 4px; }
   }
 </style>
 </head>
@@ -502,6 +550,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g,
 const fmtGB = v => v == null ? "—" : (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + "G";
 const fmtRate = k => k == null ? "—" : (k >= 1024 ? (k/1024).toFixed(1)+"M/s" : Math.round(k)+"K/s");
 const levelText = s => ({ok:"正常", warn:"警告", crit:"严重", down:"离线"})[s] || s;
+const timeStr = t => new Date(t).toLocaleTimeString("zh-CN",{hour12:false});
 
 function bar(pct, cls, warn, crit){
   pct = Math.max(0, Math.min(100, pct ?? 0));
@@ -557,12 +606,18 @@ function renderCard(s){
       </div>`;
     }).join("");
 
+    // 手机端极简芯片条 (只占一行, 不占大量高度)
+    const miniChips = chips.map(it =>
+      `<span class="chip-mini-pill">#${esc(it.id)}<b>${it.util == null ? "—" : Math.round(it.util) + "%"}</b></span>`
+    ).join("");
+
     accelHtml = `<div class="accel-box">
       <div class="accel-title-row">
         <span>⚡ ${isNpu ? "NPU 昇腾" : "GPU"} (${chips.length}卡)</span>
         <span>${avg != null ? `均 ${avg}%` : ""}${totT ? ` · 显存 ${totU.toFixed(0)}/${totT.toFixed(0)}G` : ""}</span>
       </div>
       <div class="chips-dense-grid">${itemsHtml}</div>
+      <div class="chips-mini-strip">${miniChips}</div>
     </div>`;
   }
 
@@ -588,20 +643,9 @@ function renderCard(s){
   const netStr = s.net_rx_kbps != null ? `↓${fmtRate(s.net_rx_kbps)}` : "";
   const upStr = s.uptime_days != null ? `行 ${fmtUptime(s.uptime_days)}` : "";
 
-  return `<div class="card ${esc(st)}" onclick="this.classList.toggle('expanded')">
-    <!-- 手机端紧凑摘要行 (CSS 控制: 宽屏隐藏, 窄屏显示) -->
-    <div class="mobile-row" style="display:none;">
-      <span class="c-dot" style="width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none;"></span>
-      <span class="m-name">${esc(s.name)}</span>
-      <span class="m-stat">
-        <span>CPU ${s.cpu_percent == null ? "—" : Math.round(s.cpu_percent) + "%"}</span>
-        <span class="m-bar">${bar(s.cpu_percent, "f-cpu")}</span>
-        ${chips.length > 0 ? `<span>NPU ${chips.length}卡</span>` : ""}
-        ${mem.percent != null ? `<span>内存${Math.round(mem.percent)}%</span>` : ""}
-      </span>
-      <span class="badge ${esc(st)}" style="font-size:9px;padding:1px 6px;flex:none;">${levelText(st)}</span>
-    </div>
+  const topProcStr = procs.length ? `<span class="m-proc-inline">⚡ ${esc(procs[0].name)}${procs[0].cpu_percent ? ` <b>${Math.round(procs[0].cpu_percent)}%</b>` : ""}</span>` : "";
 
+  return `<div class="card ${esc(st)}">
     <div class="chead">
       <div class="c-left">
         <span class="c-dot"></span>
@@ -624,10 +668,9 @@ function renderCard(s){
       <div class="mbox">
         <div class="mhead">
           <span class="label">内存</span>
-          <span class="val ${tint(mem.percent, 85, 95)}">${mem.percent == null ? "—" : mem.percent.toFixed(1) + "%"}</span>
+          <span class="val ${tint(mem.percent, 85, 95)}">${mem.percent == null ? "—" : mem.percent.toFixed(1) + "%"} <span class="msub">${fmtGB(mem.used_gb)}/${fmtGB(mem.total_gb)}</span></span>
         </div>
         ${bar(mem.percent, "f-mem", 85, 95)}
-        <div class="msub">${fmtGB(mem.used_gb)}/${fmtGB(mem.total_gb)}</div>
       </div>
     </div>
 
@@ -639,7 +682,7 @@ function renderCard(s){
 
     <!-- 底部极简状态行 -->
     <div class="card-foot">
-      <span>${[diskStr, loadStr].filter(Boolean).join(" · ")}</span>
+      <span>${[topProcStr, diskStr, loadStr].filter(Boolean).join(" · ")}</span>
       <span>${[netStr, upStr].filter(Boolean).join(" · ")}</span>
     </div>
   </div>`;
@@ -675,6 +718,8 @@ function renderMergedCloudCard(servers){
     const netStr = s.net_rx_kbps != null ? `↓${fmtRate(s.net_rx_kbps)}` : "";
     const upStr = s.uptime_days != null ? `行 ${fmtUptime(s.uptime_days)}` : "";
 
+    const topProcStr = procs.length ? `<span class="m-proc-inline">⚡ ${esc(procs[0].name)}${procs[0].cpu_percent ? ` <b>${Math.round(procs[0].cpu_percent)}%</b>` : ""}</span>` : "";
+
     return `<div class="sub-cloud-unit">
       <div class="sub-cloud-head">
         <div class="c-left">
@@ -695,15 +740,14 @@ function renderMergedCloudCard(servers){
         <div class="mbox">
           <div class="mhead">
             <span class="label">内存</span>
-            <span class="val ${tint(mem.percent, 85, 95)}">${mem.percent == null ? "—" : mem.percent.toFixed(1) + "%"}</span>
+            <span class="val ${tint(mem.percent, 85, 95)}">${mem.percent == null ? "—" : mem.percent.toFixed(1) + "%"} <span class="msub">${fmtGB(mem.used_gb)}/${fmtGB(mem.total_gb)}</span></span>
           </div>
           ${bar(mem.percent, "f-mem", 85, 95)}
-          <div class="msub">${fmtGB(mem.used_gb)}/${fmtGB(mem.total_gb)}</div>
         </div>
       </div>
       ${procHtml}
       <div class="card-foot" style="padding-top:4px;margin-top:2px;">
-        <span>${[diskStr, loadStr].filter(Boolean).join(" · ")}</span>
+        <span>${[topProcStr, diskStr, loadStr].filter(Boolean).join(" · ")}</span>
         <span>${[netStr, upStr].filter(Boolean).join(" · ")}</span>
       </div>
     </div>`;
