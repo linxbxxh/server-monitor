@@ -47,12 +47,12 @@ servers:
   - name: cloudbrain-2gpu
     ssh_alias: ModelArts-cloudbrain-2gpu
     group: 云脑
-    enabled: true
+    enabled: false
 
   - name: personal-2gpu
     ssh_alias: ModelArts-personal-2gpu
     group: 云脑
-    enabled: true
+    enabled: false
 
   - name: 4card-4t
     ssh_alias: ModelArts-notebook-4card-4t
