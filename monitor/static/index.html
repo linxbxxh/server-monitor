@@ -402,11 +402,62 @@
 
   /* ── 移动端适配 ─────────────────────────────── */
   @media (max-width: 768px) {
-    header { padding: 10px 14px; }
-    .meta { font-size: 11px; }
-    .compact-grid { grid-template-columns: 1fr; gap: 10px; }
-    .tunnels-bar { padding: 6px 14px; }
-    footer { flex-direction: column; }
+    header { padding: 8px 12px; gap: 8px; }
+    .brand { font-size: 13px; }
+    .meta { font-size: 10px; gap: 6px; }
+    .ghost { padding: 4px 10px; font-size: 10px; }
+    .summary-chips { gap: 4px; }
+    .chip { font-size: 10px; padding: 2px 6px; }
+    .tunnels-bar { padding: 5px 12px; gap: 6px; }
+    .tunnel-pill { padding: 2px 7px; font-size: 10px; }
+    .tunnel-pill .tmsg { display: none; }
+
+    /* 主区域: 紧凑列表, 非网格 */
+    main { padding: 8px 10px; }
+    .compact-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* 卡片改为紧凑横向摘要行 */
+    .card {
+      padding: 8px 10px;
+      border-radius: 8px;
+      gap: 4px;
+    }
+    .card::before { width: 3px; }
+
+    /* 隐藏桌面端的并排指标网格, 改用单行紧凑 */
+    .card .metrics-compact { display: none; }
+    .card .accel-box { display: none; }
+    .card .proc-row { display: none; }
+    .card .card-foot { display: none; }
+    .card .c-host { display: none; }
+
+    /* 紧凑摘要行: 名字 + 状态 + 关键指标 */
+    .mobile-row { display: flex !important; align-items: center; gap: 8px; font-size: 12px; }
+    .card .chead { display: none; }
+    .card.expanded .chead { display: flex; }
+    .card.expanded .metrics-compact { display: grid; }
+    .card.expanded .accel-box { display: flex; }
+    .card.expanded .proc-row { display: flex; }
+    .card.expanded .card-foot { display: flex; }
+    .card.expanded .c-host { display: block; }
+    .card.expanded .mobile-row { display: none; }
+    .mobile-row .m-name { font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px; }
+    .mobile-row .m-stat { flex: 1; display: flex; gap: 6px; align-items: center; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
+    .mobile-row .m-bar { width: 50px; height: 4px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; flex: none; }
+    .mobile-row .m-bar .fill { height: 100%; border-radius: 99px; }
+
+    /* 合并云服务器的子行也紧凑 */
+    .sub-cloud-unit .metrics-compact { display: none; }
+    .sub-cloud-unit .proc-row { display: none; }
+    .sub-cloud-unit .card-foot { display: none; }
+    .sub-cloud-unit .c-host { display: none; }
+
+    footer { flex-direction: column; gap: 6px; padding: 10px 12px; }
+    .dl-links a { font-size: 10px; padding: 3px 8px; }
   }
 </style>
 </head>
@@ -537,7 +588,20 @@ function renderCard(s){
   const netStr = s.net_rx_kbps != null ? `↓${fmtRate(s.net_rx_kbps)}` : "";
   const upStr = s.uptime_days != null ? `行 ${fmtUptime(s.uptime_days)}` : "";
 
-  return `<div class="card ${esc(st)}">
+  return `<div class="card ${esc(st)}" onclick="this.classList.toggle('expanded')">
+    <!-- 手机端紧凑摘要行 (CSS 控制: 宽屏隐藏, 窄屏显示) -->
+    <div class="mobile-row" style="display:none;">
+      <span class="c-dot" style="width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none;"></span>
+      <span class="m-name">${esc(s.name)}</span>
+      <span class="m-stat">
+        <span>CPU ${s.cpu_percent == null ? "—" : Math.round(s.cpu_percent) + "%"}</span>
+        <span class="m-bar">${bar(s.cpu_percent, "f-cpu")}</span>
+        ${chips.length > 0 ? `<span>NPU ${chips.length}卡</span>` : ""}
+        ${mem.percent != null ? `<span>内存${Math.round(mem.percent)}%</span>` : ""}
+      </span>
+      <span class="badge ${esc(st)}" style="font-size:9px;padding:1px 6px;flex:none;">${levelText(st)}</span>
+    </div>
+
     <div class="chead">
       <div class="c-left">
         <span class="c-dot"></span>
