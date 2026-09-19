@@ -5,6 +5,8 @@ pip install -r requirements.txt pyinstaller || goto :err
 rem --exclude-module: conda 环境下 PyInstaller 会误带 MKL/Qt(Side6)/numpy 等大依赖, 本应用只用到 PyQt5
 pyinstaller --onefile --noconfirm --name ServerMonitor ^
   --add-data "monitor/static;monitor/static" ^
+  --add-data "config.yaml;." ^
+  --collect-all paramiko --collect-all cryptography --collect-all bcrypt --collect-all nacl ^
   --exclude-module matplotlib --exclude-module numpy --exclude-module scipy ^
   --exclude-module pandas --exclude-module PIL --exclude-module tkinter ^
   --exclude-module PySide2 --exclude-module PySide6 ^

@@ -208,6 +208,7 @@ class BallWidget(QWidget):
         self._user_cfg = load_user_settings()
         self._theme = self._user_cfg.get("theme", "glass")   # 当前外观主题(右键菜单可切换, 记忆)
         self._dock_edge = self._user_cfg.get("edge", "right") # 当前停靠边: left 或 right
+        self.pinned = bool(self._user_cfg.get("pinned", False))  # 锁定状态跨重启记忆
         self._anim = None                # 位置/尺寸动画对象
 
         self.f_base = QFont("Microsoft YaHei", 10)
@@ -533,10 +534,11 @@ class BallWidget(QWidget):
         self._hover_token += 1  # 拖完原地停留, 不立刻收起
 
     def _save_position(self):
-        """把当前停靠位置、停靠边与主题写入 user_settings.json。"""
+        """把当前停靠位置、停靠边、主题与锁定状态写入 user_settings.json。"""
         save_user_settings({"anchor": [self._anchor.x(), self._anchor.y()],
                             "edge": getattr(self, "_dock_edge", "right"),
-                            "theme": self._theme})
+                            "theme": self._theme,
+                            "pinned": bool(getattr(self, "pinned", False))})
 
     def _animate_to(self, x, y, w, h, done=None):
         """平滑移动/缩放窗口(220ms OutCubic), 完成后回调 done。"""
@@ -620,6 +622,7 @@ class BallWidget(QWidget):
         self.pinned = v
         if hasattr(self, "_act_pin"):
             self._act_pin.setText("取消锁定" if v else "锁定面板")
+        self._save_position()   # 锁定状态持久化, 重启后保持
         self.update()
 
     def _set_theme(self, key):
