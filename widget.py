@@ -300,10 +300,14 @@ class BallWidget(QWidget):
                     self.setGeometry(self._anchor.x(), self._anchor.y(), CARD_W, want_h)
                 self.update()
 
+    def _visible_servers(self):
+        """当前应展示的节点: 过滤掉离线服务器(用户偏好: 离线的就不显示了)。"""
+        return [s for s in (self.snap.get("servers") or []) if s.get("online")]
+
     def _card_sig(self):
         """小方块内容签名: 数据/时间分钟/停放状态任一变化才重绘。"""
         rows = []
-        for s in self.snap.get("servers", []):
+        for s in self._visible_servers():
             accel = s.get("accel") or {}
             chips = accel.get("items") or []
             utils = [c.get("util") for c in chips if c.get("util") is not None]
@@ -321,11 +325,8 @@ class BallWidget(QWidget):
         c = self.snap.get("counts", {})
         peak = self._peak_cpu()
         lines = [f"在线 {c.get('ok', 0)} · 警告 {c.get('warn', 0)} · 严重 {c.get('crit', 0)} · 离线 {c.get('down', 0)}"]
-        for s in self.snap.get("servers", []):
-            if s.get("online"):
-                lines.append(f"{s['name']}: CPU {s.get('cpu_percent') or 0:.0f}%  {LEVEL_TXT.get(s.get('status'), '')}")
-            else:
-                lines.append(f"{s['name']}: 离线")
+        for s in self._visible_servers():
+            lines.append(f"{s['name']}: CPU {s.get('cpu_percent') or 0:.0f}%  {LEVEL_TXT.get(s.get('status'), '')}")
         return f"服务器监控(悬停查看逐芯片详情)\nCPU峰值 {peak}\n" + "\n".join(lines)
 
     def _peak_cpu(self):
@@ -841,7 +842,7 @@ class BallWidget(QWidget):
     def _panel_items(self):
         if self._lines_cache is None:
             items = []
-            groups = self._grouped_servers(self.snap.get("servers", []))
+            groups = self._grouped_servers(self._visible_servers())
             first = True
             for g in groups:
                 if not first:
@@ -955,7 +956,7 @@ class BallWidget(QWidget):
         p.drawEllipse(QPointF(cx, cy), 3, 3)
 
     def _card_height(self):
-        servers = self.snap.get("servers") or []
+        servers = self._visible_servers()
         if not servers:
             return 18 + 30 + 6
         groups = self._grouped_servers(servers)
@@ -1071,11 +1072,11 @@ class BallWidget(QWidget):
             p.setPen(bcol)
             p.drawText(pill, Qt.AlignCenter, f"!{min(n_badge, 9)}")
 
-        servers = self.snap.get("servers") or []
+        servers = self._visible_servers()
         if not servers:
             p.setPen(t_dim)
             p.drawText(QRect(10, 28, w - 20, 17), Qt.AlignLeft | Qt.AlignVCenter,
-                       "暂无服务器")
+                       "暂无在线节点")
             return
 
         cpu_c = th["cpu"]

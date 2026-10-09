@@ -1030,13 +1030,14 @@ function render(d){
   const tunnels = allServers.filter(s => s.is_tunnel);
   const realServers = allServers.filter(s => !s.is_tunnel);
 
-  // 渲染通栏通道条
+  // 渲染通栏通道条 (只显示在线通道, 离线不展示)
   const tunnelsBar = document.getElementById("tunnels-bar");
   const tunnelsList = document.getElementById("tunnels-list");
-  if (tunnels.length > 0){
+  const onlineTunnels = tunnels.filter(t => t.online);
+  if (onlineTunnels.length > 0){
     tunnelsBar.style.display = "flex";
-    tunnelsList.innerHTML = tunnels.map(t => {
-      const isOk = t.online && t.status !== "crit";
+    tunnelsList.innerHTML = onlineTunnels.map(t => {
+      const isOk = t.status !== "crit";
       const shortName = t.name.replace(" 隧道", "").replace(" 反向隧道", "-r");
       return `<div class="tunnel-pill ${isOk ? 'ok' : 'crit'}">
         <span class="tdot"></span>
@@ -1051,13 +1052,13 @@ function render(d){
   const gridEl = document.getElementById("grid");
 
   if (currentView === "strip") {
-    // 手机长条一屏全览模式 (全展开超紧凑长条)
+    // 手机长条一屏全览模式 (全展开超紧凑长条); 离线节点不显示
     gridEl.className = "strip-list";
-    const stripsHtml = realServers.map(renderStrip).join("");
+    const stripsHtml = realServers.filter(s => s.online).map(renderStrip).join("");
     gridEl.innerHTML = stripsHtml ||
-      `<div style="text-align:center;padding:40px;color:var(--dim)">无监控主机节点</div>`;
+      `<div style="text-align:center;padding:40px;color:var(--dim)">无在线主机节点</div>`;
   } else {
-    // 桌面网格卡片模式
+    // 桌面网格卡片模式 (离线节点不显示)
     gridEl.className = "compact-grid";
     const onlineServers = realServers.filter(s => s.online);
     const cloudServers = onlineServers.filter(s =>
