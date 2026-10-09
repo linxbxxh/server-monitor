@@ -77,6 +77,16 @@ def create_app(state, settings):
     def healthz():
         return jsonify({"ok": True, "ts": time.time()})
 
+    # PWA: sw.js 位于 /static/ 下, 需要显式放行到站点根作用域,
+    # 否则 Service Worker 只能控制 /static/*, 无法接管页面与离线缓存。
+    # 值必须是路径前缀上限: 用 "/" 才能同时兼容本机("/")与反代前缀("/server-monitor/")。
+    @app.after_request
+    def _sw_scope(resp):
+        if request.path.endswith("/sw.js"):
+            resp.headers["Service-Worker-Allowed"] = "/"
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     # EXE 下载 (带 token 保护, 不放 static 目录避免被 PWA 缓存)
     @_route("/download/ServerMonitor.exe")
     def download_exe():

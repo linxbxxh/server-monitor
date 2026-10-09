@@ -2,17 +2,24 @@
  * 策略: 静态资源 cache-first + 后台更新; /api/* 永远直连(实时数据不缓存),
  * 离线时 API 失败由页面自身显示"最后更新时间"。
  * 使用相对路径匹配, 兼容反向代理前缀 (/server-monitor/)。 */
-const CACHE = "mon-static-v2";
+const CACHE = "mon-static-v3";
+// 资源路径相对 SW 脚本位置( .../static/sw.js )解析:
+//   "../"                     -> 站点根(无前缀时为 /, 带前缀时为 /server-monitor/)
+//   "./manifest.webmanifest"  -> .../static/manifest.webmanifest
 const STATIC_ASSETS = [
-  "./",
-  "./static/index.html",
-  "./static/manifest.webmanifest",
-  "./static/icons/icon-192.png",
-  "./static/icons/icon-512.png"
+  "../",
+  "./manifest.webmanifest",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png"
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC_ASSETS)).then(() => self.skipWaiting()));
+  // 逐个 add 且容忍单个失败: addAll 任一 404 会导致整个 SW 安装失败
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(c => Promise.all(STATIC_ASSETS.map(u => c.add(u).catch(() => null))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", e => {

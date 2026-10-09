@@ -15,8 +15,8 @@ except ImportError:  # 本机采集不可用时, LocalCollector 会报离线
 
 log = logging.getLogger("monitor.collector")
 
-# 一条命令取齐所有指标; CPU 取间隔 1 秒的两次采样以计算利用率
-REMOTE_CMD = (
+# 一条命令取齐所有核心指标; CPU 取间隔 1 秒的两次采样以计算利用率
+_CMD_BASE = (
     "echo __CPU_A__; grep '^cpu ' /proc/stat; "
     "echo __CPU_B__; sleep 1; grep '^cpu ' /proc/stat; "
     "echo __MEM__; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; "
@@ -28,15 +28,17 @@ REMOTE_CMD = (
     "echo __GPU__; nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu,name "
     "--format=csv,noheader,nounits 2>/dev/null; "
     "echo __NPU__; (npu-smi info 2>/dev/null || /usr/local/sbin/npu-smi info 2>/dev/null) | head -200; "
+)
+_CMD_PROC_DETAIL = (
     "echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | grep -vE '(^|[[:space:]])(grep|head)[[:space:]]' | head -11; "
     "echo __USERS__; who; "
-    "echo __END__"
 )
+_CMD_PROC_FAST = "echo __PROC__; echo __USERS__; "
+_CMD_END = "echo __END__"
 
-REMOTE_CMD_DETAIL = REMOTE_CMD.replace(
-    'echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -11; ',
-    'echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -11; '
-)
+def _build_remote_cmd(process_detail=True):
+    proc_part = _CMD_PROC_DETAIL if process_detail else _CMD_PROC_FAST
+    return _CMD_BASE + proc_part + _CMD_END
 
 NET_EXCLUDE = re.compile(
     r"^(lo|docker.*|br-.*|veth.*|virbr.*|cali.*|flannel.*|cni.*|tun.*|tap.*|wg.*|kube-ipvs.*|dummy.*|sit.*|vnic.*)$")
@@ -266,10 +268,9 @@ class ServerCollector:
     def _make_proxy_sock(self):
         """根据 proxycommand 启动子进程, 返回可用的 socket-like 对象。"""
         import subprocess as _sp
-        import socket as _socket
 
         proc = _sp.Popen(self.proxy_command, shell=True,
-                         stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.PIPE,
+                         stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL,
                          creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0))
 
         # paramiko 的 connect(sock=...) 需要一个有 settimeout() 和 fileno() 的对象;
@@ -284,7 +285,8 @@ class ServerCollector:
                 pass
             def send(self, data):
                 try:
-                    self._w.write(data); self._w.flush()
+                    self._w.write(data)
+                    self._w.flush()
                     return len(data)
                 except Exception:
                     return 0
@@ -297,6 +299,7 @@ class ServerCollector:
                 self._closed = True
                 try:
                     self._p.terminate()
+                    self._p.wait(timeout=1)
                 except Exception:
                     pass
             def fileno(self):
@@ -311,8 +314,8 @@ class ServerCollector:
         proxy_vars = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
                       "http_proxy", "https_proxy", "all_proxy", "no_proxy")
         saved = {k: os.environ.pop(k, None) for k in proxy_vars}
+        client = paramiko.SSHClient()
         try:
-            client = paramiko.SSHClient()
             # 先加载系统 known_hosts: 已录入指纹的主机会被严格校验,
             # 未录入的新主机才自动信任并录入(TOFU), 防止指纹已变的主机被静默接受
             client.load_system_host_keys()
@@ -329,24 +332,58 @@ class ServerCollector:
                            timeout=self.timeout, banner_timeout=handshake_timeout,
                            auth_timeout=handshake_timeout, allow_agent=False,
                            look_for_keys=False, sock=sock)
+            try:
+                transport = client.get_transport()
+                if transport is not None:
+                    transport.set_keepalive(30)
+            except Exception:
+                pass
             return client
+        except Exception:
+            try:
+                client.close()
+            except Exception:
+                pass
+            raise
         finally:
             for k, v in saved.items():
                 if v is not None:
                     os.environ[k] = v
 
-    def _exec(self):
+    def _is_client_alive(self):
         if self._client is None:
-            self._client = self._connect()
+            return False
         try:
-            _, stdout, _ = self._client.exec_command(REMOTE_CMD if self.process_detail else REMOTE_CMD.replace('echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -11; ', 'echo __PROC__;'), timeout=self.timeout * 3)
-        except (paramiko.SSHException, paramiko.ssh_exception.SSHException, EOFError, ConnectionResetError, OSError):
-            # 会话失效, 强制关闭并重建
+            t = self._client.get_transport()
+            return t is not None and t.is_active() and t.is_authenticated()
+        except Exception:
+            return False
+
+    def _run_cmd(self, client, cmd):
+        timeout = self.timeout * 3
+        _, stdout, _ = client.exec_command(cmd, timeout=timeout)
+        out = stdout.read().decode("utf-8", "replace")
+        try:
+            stdout.channel.recv_exit_status()
+        except Exception:
+            pass
+        return out
+
+    def _exec(self):
+        cmd = _build_remote_cmd(self.process_detail)
+        # 1. 预检现有连接是否活跃且已认证，若已失效则先清理重连
+        if not self._is_client_alive():
             self._close()
             self._client = self._connect()
-            _, stdout, _ = self._client.exec_command(REMOTE_CMD if self.process_detail else REMOTE_CMD.replace('echo __PROC__; ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu | head -11; ', 'echo __PROC__;'), timeout=self.timeout * 3)
-        out = stdout.read().decode("utf-8", "replace")
-        stdout.channel.recv_exit_status()
+
+        # 2. 完整的执行+读取+退出状态等待，涵盖 read() 阶段抛出的 SSHException/No existing session
+        try:
+            return self._run_cmd(self._client, cmd)
+        except (paramiko.SSHException, EOFError, ConnectionResetError, OSError) as exc:
+            log.warning("主机 %s SSH会话失效(%s)，重新建立连接重试...", self.name, exc)
+            self._close()
+            self._client = self._connect()
+            return self._run_cmd(self._client, cmd)
         return out
 
     def _collect(self):

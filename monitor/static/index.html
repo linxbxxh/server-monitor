@@ -656,7 +656,7 @@
   <div id="alert-summary">暂无告警</div>
   <div class="dl-links">
     <a href="./static/ServerMonitor.apk" download>📱 Android APK</a>
-    <a href="./download/ServerMonitor.exe?token=srvmon-9f3Kq7Wm2Rx8Vb4N" download>💻 Windows EXE</a>
+    <a href="./download/ServerMonitor.exe" id="dl-exe" download>💻 Windows EXE</a>
   </div>
 </footer>
 
@@ -1102,7 +1102,7 @@ function render(d){
 }
 
 /* ── 自动刷新 ── */
-const REFRESH = 5;
+let REFRESH = 5;
 let remain = REFRESH, paused = false, busy = false, lastTime = null;
 const metaEl = document.getElementById("meta");
 
@@ -1113,6 +1113,10 @@ if (qs.get("token")){
 }
 const TOKEN = localStorage.getItem("mon_token") || "";
 const authHeaders = TOKEN ? {Authorization: "Bearer " + TOKEN} : {};
+
+// 下载链接按当前令牌动态拼接, 避免把令牌硬编码在页面里
+const dlExe = document.getElementById("dl-exe");
+if (dlExe && TOKEN) dlExe.href = `./download/ServerMonitor.exe?token=${encodeURIComponent(TOKEN)}`;
 
 function updateMeta(){
   if (paused){
@@ -1131,7 +1135,10 @@ async function refresh(){
       metaEl.textContent = "令牌未提供或失效，需在URL带 ?token=";
       busy = false; return;
     }
-    render(await r.json());
+    const data = await r.json();
+    // 刷新周期跟随服务端采集间隔, 避免比采集更频繁的空轮询
+    if (data && data.interval && data.interval > 0) REFRESH = data.interval;
+    render(data);
     lastTime = Date.now();
   }catch(e){
     metaEl.textContent = "连接中…" + (lastTime ? ` (${timeStr(lastTime)})` : "");
@@ -1202,7 +1209,7 @@ window.addEventListener("online", () => { if (!paused) remain = 0; });
 refresh();
 
 if ("serviceWorker" in navigator && location.protocol !== "file:")
-  navigator.serviceWorker.register("static/sw.js?v=4").catch(() => {});
+  navigator.serviceWorker.register("static/sw.js?v=5", {scope: "./"}).catch(() => {});
 </script>
 </body>
 </html>

@@ -94,8 +94,10 @@ def save_user_settings(data):
     try:
         cur = load_user_settings()
         cur.update(data)
-        with open(path, "w", encoding="utf-8") as f:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cur, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
     except Exception as e:
         log.warning("保存设置失败: %s", e)
 
@@ -290,8 +292,10 @@ class BallWidget(QWidget):
             sig = self._card_sig()
             if sig != self._last_card_sig:
                 self._last_card_sig = sig
-                # 台数变化时卡片高度也要跟着变, 否则多出的行被裁掉
-                want_h = self._card_height()
+                # 台数变化时卡片高度也要跟着变, 否则多出的行被裁掉;
+                # 同时夹住屏幕可用高度, 防止小屏副屏上卡片超出可视区域
+                avail = self._screen_at(self._anchor).availableGeometry()
+                want_h = min(self._card_height(), max(200, avail.height() - 16))
                 if self.height() != want_h:
                     self.setGeometry(self._anchor.x(), self._anchor.y(), CARD_W, want_h)
                 self.update()
@@ -366,8 +370,9 @@ class BallWidget(QWidget):
         self.mini = False
         self.expanded = True
         self._panel_sig = None
-        h = self._panel_height()
         avail = self._screen_at(self._anchor).availableGeometry()
+        max_h = max(200, avail.height() - 16)
+        h = min(self._panel_height(), max_h)
         bx, by = self._anchor.x(), self._anchor.y()
         ch = self._card_height()
         if getattr(self, "_dock_edge", "right") == "left":
@@ -419,8 +424,9 @@ class BallWidget(QWidget):
         self.update()
 
     def _apply_geometry(self):
-        h = self._panel_height()
         avail = self._screen_at(self._anchor).availableGeometry()
+        max_h = max(200, avail.height() - 16)
+        h = min(self._panel_height(), max_h)
         bx, by = self._anchor.x(), self._anchor.y()
         ch = self._card_height()
         if getattr(self, "_dock_edge", "right") == "left":
@@ -664,7 +670,9 @@ class BallWidget(QWidget):
         threading.Thread(target=run, daemon=True).start()
 
     def open_web(self):
-        url = f"http://127.0.0.1:{self.settings['listen_port']}/"
+        token = self.settings.get("mobile_token", "")
+        qs = f"?token={token}" if token else ""
+        url = f"http://127.0.0.1:{self.settings['listen_port']}/{qs}"
         if getattr(self, "_web_running", False):     # 已在运行, 直接打开
             webbrowser.open(url)
             return
@@ -804,7 +812,7 @@ class BallWidget(QWidget):
         usage = s.get("usage") or {}
         for label, key in (("使用", "status"), ("用户", "users"), ("进程", "processes")):
             value = usage.get(key, s.get(key)) if isinstance(usage, dict) else None
-            if value is not None and value != "":
+            if value:   # None/""/[] 都跳过, 避免出现空白的"用户""进程"行
                 if isinstance(value, (list, tuple)):
                     if label == "进程":
                         value = ", ".join(
@@ -812,7 +820,8 @@ class BallWidget(QWidget):
                             if isinstance(x, dict) else str(x) for x in value[:4])
                     else:
                         value = ", ".join(str(x) for x in value[:4])
-                items.append(("usage", label, str(value)))
+                if value:
+                    items.append(("usage", label, str(value)))
 
         disks = s.get("disks") or []
         if disks:

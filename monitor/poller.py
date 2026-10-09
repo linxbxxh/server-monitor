@@ -1,7 +1,7 @@
 """采集调度: 构建采集器并周期性并行采样, 供 Web 面板与桌面悬浮球两个入口复用。"""
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from monitor.collector import DemoCollector, LocalCollector, ServerCollector, TunnelCollector
 
@@ -46,9 +46,18 @@ def poll_loop(settings, collectors, state, stop_event):
     with ThreadPoolExecutor(max_workers=max(4, len(collectors))) as pool:
         while not stop_event.is_set():
             started = time.time()
-            for sample in pool.map(lambda c: c.sample(), collectors):
-                state.update(sample)
-                if sample.get("online") and sample["name"] not in seen_online:
-                    seen_online.add(sample["name"])
-                    log.info("%s 采集成功 (%s)", sample["name"], sample.get("label"))
+            # 用 as_completed 替代 pool.map: 哪台服务器先采集完立刻写入 state，
+            # 杜绝某台慢机/断线机在队头阻塞其他所有正常机器的实时刷新
+            future_to_col = {pool.submit(c.sample): c for c in collectors}
+            for fut in as_completed(future_to_col):
+                try:
+                    sample = fut.result()
+                    state.update(sample)
+                    if sample.get("online") and sample["name"] not in seen_online:
+                        seen_online.add(sample["name"])
+                        log.info("%s 采集成功 (%s)", sample["name"], sample.get("label"))
+                except Exception as e:
+                    col = future_to_col.get(fut)
+                    col_name = getattr(col, "name", "?")
+                    log.error("采集器 %s 抛出未捕获异常: %s", col_name, e)
             stop_event.wait(max(1, interval - (time.time() - started)))
