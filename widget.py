@@ -843,11 +843,23 @@ class BallWidget(QWidget):
         if self._lines_cache is None:
             items = []
             groups = self._grouped_servers(self._visible_servers())
-            first = True
-            for g in groups:
-                if not first:
-                    items.append(("ghead", g["group"]))
-                first = False
+            # 通道类合并为一行: 状态点+名字+信息依次拼接, 极大压缩纵向空间
+            tunnels, hosts = [], []
+            for s in self._visible_servers():
+                (tunnels if s.get("is_tunnel") else hosts).append(s)
+            if tunnels:
+                segs = []
+                worst_st = "ok"
+                for s in tunnels:
+                    st = s.get("status") or "down"
+                    msg = s.get("tunnel_msg") or ("正常" if s.get("online") else "离线")
+                    segs.append(f"{s['name']} {msg}")
+                    order = {"ok": 0, "warn": 1, "crit": 2, "down": 3}
+                    if order.get(st, 0) > order.get(worst_st, 0):
+                        worst_st = st
+                items.append(("tunnel_compact", LEVEL.get(worst_st, C_DOWN), "通道", " · ".join(segs)))
+            for g in self._grouped_servers(hosts):
+                items.append(("ghead", g["group"]))
                 for s in g["items"]:
                     items.extend(self._server_items(s))
             self._lines_cache = items
@@ -888,20 +900,22 @@ class BallWidget(QWidget):
         h = 42  # header
         for item in self._panel_items():
             kind = item[0]
-            if kind in ("srow", "tunnel_row"):
-                h += 25
+            if kind == "tunnel_compact":
+                h += 20
+            elif kind in ("srow",):
+                h += 22
             elif kind in ("meter", "npuhead", "err", "usage"):
-                h += 19
+                h += 16
             elif kind == "chipbar":
-                h += 38 * len(self._chip_rows(item[1]))
+                h += 30 * len(self._chip_rows(item[1]))
             elif kind == "ghead":
-                h += 24
+                h += 20
             elif kind == "sep":
-                h += 12
+                h += 8
         alerts = self.snap.get("alerts") or []
         if alerts:
-            h += 6 + 18 * min(2, len(alerts))
-        return h + 30  # footer + bottom padding
+            h += 4 + 16 * min(2, len(alerts))
+        return h + 24  # footer + bottom padding
 
     # ── 绘制 ────────────────────────────────────────────
     def paintEvent(self, e):
@@ -1319,41 +1333,41 @@ class BallWidget(QWidget):
         p.drawLine(14, 39, w - 14, 39)
         self._paint_pin(p)
 
-        y = 49
+        y = 47
         for item in self._panel_items():
             kind = item[0]
             if kind == "srow":
                 _, dot, name, status_txt, st_col = item
                 p.setPen(Qt.NoPen)
                 p.setBrush(dot)
-                p.drawEllipse(QRectF(19, y + 7, 9, 9))
+                p.drawEllipse(QRectF(19, y + 5, 8, 8))
                 p.setPen(P_TXT)
                 p.setFont(self.f_bold)
-                p.drawText(QRect(37, y, 250, 21), Qt.AlignLeft | Qt.AlignVCenter, name)
+                p.drawText(QRect(35, y, 250, 19), Qt.AlignLeft | Qt.AlignVCenter, name)
                 p.setPen(st_col)
                 p.setFont(self.f_small)
-                p.drawText(QRect(w - 86, y, 68, 21), Qt.AlignRight | Qt.AlignVCenter, status_txt)
-                y += 25
-            elif kind == "tunnel_row":
-                _, dot, name, msg, st_col = item
+                p.drawText(QRect(w - 86, y, 68, 19), Qt.AlignRight | Qt.AlignVCenter, status_txt)
+                y += 22
+            elif kind == "tunnel_compact":
+                _, dot, name, msg = item
                 p.setPen(Qt.NoPen)
                 p.setBrush(dot)
-                p.drawEllipse(QRectF(19, y + 7, 9, 9))
+                p.drawEllipse(QRectF(19, y + 5, 8, 8))
                 p.setPen(P_TXT)
                 p.setFont(self.f_bold)
-                p.drawText(QRect(37, y, 180, 21), Qt.AlignLeft | Qt.AlignVCenter, name)
-                p.setPen(st_col)
+                p.drawText(QRect(35, y, 46, 19), Qt.AlignLeft | Qt.AlignVCenter, name)
+                p.setPen(P_MUT)
                 p.setFont(self.f_small)
                 fm_msg = QFontMetrics(self.f_small)
-                p.drawText(QRect(w - 220, y, 202, 21), Qt.AlignRight | Qt.AlignVCenter,
-                           fm_msg.elidedText(msg, Qt.ElideLeft, 202))
-                y += 25
+                p.drawText(QRect(84, y, w - 102, 19), Qt.AlignLeft | Qt.AlignVCenter,
+                           fm_msg.elidedText(msg, Qt.ElideMiddle, w - 102))
+                y += 20
             elif kind == "meter":
                 _, label, pct, bar_kind, val_txt, warn, crit = item
                 p.setPen(P_MUT)
                 p.setFont(self.f_small)
-                p.drawText(QRect(37, y, 44, 18), Qt.AlignLeft | Qt.AlignVCenter, label)
-                self._draw_meter(p, 84, y + 5.5, PANEL_W - 84 - 178, pct, bar_kind, warn, crit)
+                p.drawText(QRect(35, y, 44, 16), Qt.AlignLeft | Qt.AlignVCenter, label)
+                self._draw_meter(p, 82, y + 4.5, PANEL_W - 82 - 178, pct, bar_kind, warn, crit)
                 vcol = P_TXT
                 if pct is not None and warn is not None:
                     if pct >= crit:
@@ -1362,61 +1376,61 @@ class BallWidget(QWidget):
                         vcol = C_WARN
                 p.setPen(vcol)
                 fm_v = QFontMetrics(self.f_small)
-                p.drawText(QRect(w - 176, y, 158, 18), Qt.AlignRight | Qt.AlignVCenter,
+                p.drawText(QRect(w - 176, y, 158, 16), Qt.AlignRight | Qt.AlignVCenter,
                            fm_v.elidedText(val_txt, Qt.ElideMiddle, 158))
-                y += 19
+                y += 16
             elif kind == "npuhead":
                 p.setPen(C_NPU)
                 p.setFont(self.f_small)
-                p.drawText(QRect(37, y, 240, 18), Qt.AlignLeft | Qt.AlignVCenter, item[1])
+                p.drawText(QRect(35, y, 240, 16), Qt.AlignLeft | Qt.AlignVCenter, item[1])
                 p.setPen(P_DIM)
-                p.drawText(QRect(w - 190, y, 172, 18), Qt.AlignRight | Qt.AlignVCenter, item[2])
-                y += 19
+                p.drawText(QRect(w - 190, y, 172, 16), Qt.AlignRight | Qt.AlignVCenter, item[2])
+                y += 16
             elif kind == "chipbar":
                 for row in self._chip_rows(item[1]):
                     for i, (label, util, bad, mu, mt) in enumerate(row):
-                        x = 37 + i * 213
+                        x = 35 + i * 213
                         col = C_CRIT if bad else C_NPU
                         p.setPen(col)
                         p.setFont(self.f_small)
-                        p.drawText(QRect(x, y, 48, 18), Qt.AlignLeft | Qt.AlignVCenter, label)
-                        self._draw_meter(p, x + 52, y + 5.5, 100, util, "npu", None, None)
+                        p.drawText(QRect(x, y, 46, 15), Qt.AlignLeft | Qt.AlignVCenter, label)
+                        self._draw_meter(p, x + 50, y + 4, 100, util, "npu", None, None)
                         p.setPen(C_CRIT if bad else P_TXT)
-                        p.drawText(QRect(x + 158, y, 44, 18), Qt.AlignRight | Qt.AlignVCenter,
+                        p.drawText(QRect(x + 154, y, 44, 15), Qt.AlignRight | Qt.AlignVCenter,
                                    "…" if util is None else f"{util}%")
                         # 第二行: HBM 显存占比
                         hbm_pct = (mu / mt * 100) if (mu is not None and mt) else None
-                        self._draw_meter(p, x + 52, y + 24.5, 100, hbm_pct, "hbm", None, None)
+                        self._draw_meter(p, x + 50, y + 19, 100, hbm_pct, "hbm", None, None)
                         p.setPen(P_DIM)
                         short = lambda v: "—" if v is None else (f"{v:.0f}" if v >= 10 else f"{v:.1f}")
-                        p.drawText(QRect(x + 152, y + 19, 68, 18), Qt.AlignRight | Qt.AlignVCenter,
+                        p.drawText(QRect(x + 148, y + 14, 68, 15), Qt.AlignRight | Qt.AlignVCenter,
                                    f"{short(mu)}/{short(mt)}G" if mu is not None else "—")
-                    y += 38
+                    y += 30
             elif kind == "usage":
                 p.setPen(P_DIM)
                 p.setFont(self.f_small)
                 fm_u = QFontMetrics(self.f_small)
-                p.drawText(QRect(37, y, 44, 18), Qt.AlignLeft | Qt.AlignVCenter, item[1])
-                p.drawText(QRect(84, y, w - 102, 18), Qt.AlignLeft | Qt.AlignVCenter,
-                           fm_u.elidedText(item[2], Qt.ElideRight, w - 102))
-                y += 19
+                p.drawText(QRect(35, y, 44, 16), Qt.AlignLeft | Qt.AlignVCenter, item[1])
+                p.drawText(QRect(82, y, w - 100, 16), Qt.AlignLeft | Qt.AlignVCenter,
+                           fm_u.elidedText(item[2], Qt.ElideRight, w - 100))
+                y += 16
             elif kind == "err":
                 p.setPen(C_CRIT)
                 p.setFont(self.f_small)
-                p.drawText(QRect(37, y, w - 55, 18), Qt.AlignLeft | Qt.AlignVCenter, item[1])
-                y += 19
+                p.drawText(QRect(35, y, w - 55, 16), Qt.AlignLeft | Qt.AlignVCenter, item[1])
+                y += 16
             elif kind == "ghead":
                 # 分组头: 分隔线 + 分组名(主题色)
                 p.setPen(QPen(P_LINE, 1))
-                p.drawLine(14, y + 4, w - 14, y + 4)
+                p.drawLine(14, y + 3, w - 14, y + 3)
                 p.setPen(P_TXT)
                 p.setFont(self.f_title)
-                p.drawText(QRect(18, y + 6, w - 36, 20), Qt.AlignLeft | Qt.AlignVCenter, item[1])
-                y += 24
+                p.drawText(QRect(18, y + 5, w - 36, 17), Qt.AlignLeft | Qt.AlignVCenter, item[1])
+                y += 20
             elif kind == "sep":
                 p.setPen(QPen(P_LINE, 1))
-                p.drawLine(16, y + 5, w - 16, y + 5)
-                y += 12
+                p.drawLine(16, y + 3, w - 16, y + 3)
+                y += 8
 
         alerts = self.snap.get("alerts") or []
         if alerts:
@@ -1424,17 +1438,17 @@ class BallWidget(QWidget):
             for a in alerts[:2]:
                 p.setPen(LEVEL.get(a.get("level"), P_MUT))
                 p.setBrush(LEVEL.get(a.get("level"), P_MUT))
-                p.drawEllipse(QRectF(19, y + 6, 7, 7))
+                p.drawEllipse(QRectF(19, y + 5, 7, 7))
                 p.setPen(P_MUT)
                 msg = f"{a.get('name', '')}  {a.get('msg', '')}"
-                p.drawText(QRect(35, y, w - 53, 17), Qt.AlignLeft | Qt.AlignVCenter,
+                p.drawText(QRect(35, y, w - 53, 15), Qt.AlignLeft | Qt.AlignVCenter,
                            QFontMetrics(self.f_small).elidedText(msg, Qt.ElideMiddle, w - 70))
-                y += 18
+                y += 16
 
         p.setPen(P_DIM)
         p.setFont(self.f_small)
         interval = self.settings.get("interval_seconds", 15)
-        p.drawText(QRect(18, h - 27, w - 36, 18), Qt.AlignLeft | Qt.AlignVCenter,
+        p.drawText(QRect(18, h - 22, w - 36, 16), Qt.AlignLeft | Qt.AlignVCenter,
                    f"每{interval}s经SSH采集 · 右键菜单可锁定/打开网页版")
 
     def _paint_pin(self, p):
