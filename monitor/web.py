@@ -1,4 +1,5 @@
 """Flask Web 服务: 面板页面 + JSON 接口。"""
+import hmac
 import os
 import sys
 import time
@@ -37,9 +38,12 @@ def create_app(state, settings):
         if not api_token:
             return True
         auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer ") and auth[7:].strip() == api_token:
+        bearer = auth[7:].strip() if auth.startswith("Bearer ") else ""
+        query_tok = request.args.get("token", "")
+        # 用恒定时间比较防止时序侧信道
+        if bearer and hmac.compare_digest(bearer, api_token):
             return True
-        if request.args.get("token", "") == api_token:
+        if query_tok and hmac.compare_digest(query_tok, api_token):
             return True
         return False
 

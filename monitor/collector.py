@@ -86,9 +86,11 @@ def _mem_info(text):
     total = avail = None
     for line in text.splitlines():
         if line.startswith("MemTotal:"):
-            total = int(line.split()[1])
+            try: total = int(line.split()[1])
+            except (ValueError, IndexError): pass
         elif line.startswith("MemAvailable:"):
-            avail = int(line.split()[1])
+            try: avail = int(line.split()[1])
+            except (ValueError, IndexError): pass
     if not total:
         return None
     used = total - (avail or 0)
@@ -102,12 +104,16 @@ def _disk_info(text, min_total_gb=1.0, max_rows=6):
         parts = line.split()
         if len(parts) < 6:
             continue
-        fs, total_kb, used_kb, cap, mount = parts[0], int(parts[1]), int(parts[2]), parts[4], parts[5]
+        try:
+            total_kb, used_kb = int(parts[1]), int(parts[2])
+        except ValueError:
+            continue
+        fs, cap, mount = parts[0], parts[4], parts[5]
         if os.path.basename(fs) in PSEUDO_FS or fs.startswith("/dev/loop"):
             continue
         if mount.startswith("/snap") or mount == "/boot/efi":
             continue
-        if mount in ("/etc/hostname", "/etc/hosts", "/etc/resolv.conf"):  # 容器绑定挂载噪音
+        if mount in ("/etc/hostname", "/etc/hosts", "/etc/resolv.conf"):
             continue
         if total_kb / 1048576 < min_total_gb or fs in seen:
             continue
@@ -384,7 +390,6 @@ class ServerCollector:
             self._close()
             self._client = self._connect()
             return self._run_cmd(self._client, cmd)
-        return out
 
     def _collect(self):
         out = self._exec()   # 锁由 sample() 持有, 这里不再重复加锁
@@ -594,16 +599,22 @@ class TunnelCollector:
             return None
         try:
             import subprocess as sp
-            # marker 用不带扩展名的密钥名特征, 如 lin_key / tx_lin
             marker = self.ssh_marker.split(".")[0]
-            # wmic 查询 ssh.exe 且命令行含 marker 的进程数, 比 CimInstance 在子进程里更稳
-            cmd = f'wmic process where "name=\'ssh.exe\' and CommandLine like \'%{marker}%\'" get ProcessId /format:csv'
+            # 使用 tasklist 替代已废弃的 wmic, 更兼容新版 Windows
+            cmd = f'tasklist /fi "imagename eq ssh.exe" /fo csv /nh'
             out = sp.run(cmd, capture_output=True, text=True, timeout=self.timeout,
                          errors="replace",
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
-            # wmic csv 输出含表头, 数有内容的行
-            lines = [l for l in out.splitlines() if l.strip() and "," in l and "ProcessId" not in l]
-            return len(lines) > 0
+                         creationflags=getattr(sp, "CREATE_NO_WINDOW", 0)).stdout
+            # tasklist /fo csv /nh 输出每行: "ssh.exe","PID","Session","SessionNum","Mem"
+            # 再逐行检查命令行是否含 marker — tasklist 不输出命令行,
+            # 所以用 PowerShell 精确匹配 CommandLine
+            ps_cmd = (f'powershell -NoProfile -Command "Get-CimInstance Win32_Process '
+                      f'-Filter \\"Name=\'ssh.exe\'\\" | Where-Object {{ $_.CommandLine -like \'*{marker}*\' }} '
+                      f'| Measure-Object | Select-Object -ExpandProperty Count"')
+            result = sp.run(ps_cmd, capture_output=True, text=True, timeout=self.timeout,
+                            errors="replace",
+                            creationflags=getattr(sp, "CREATE_NO_WINDOW", 0)).stdout.strip()
+            return int(result) > 0 if result.isdigit() else None
         except Exception:
             return None   # 探测失败时不影响主判定
 

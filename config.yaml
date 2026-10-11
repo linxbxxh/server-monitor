@@ -59,6 +59,11 @@ servers:
     group: 云脑
     enabled: true
 
+  - name: 8card-b92c
+    ssh_alias: ModelArts-notebook-b92c
+    group: 云脑
+    enabled: true
+
   # ---- 云脑3 Ascend 实例(经跳板机+ProxyCommand 隧道) ----
   - name: cloudbrain-ascend
     ssh_alias: cloudbrain-ascend
