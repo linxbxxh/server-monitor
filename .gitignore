@@ -32,3 +32,4 @@ env/
 # IDE
 .vscode/
 .idea/
+srvmon-new.err
